@@ -98,6 +98,12 @@ func ApplyRSVirtualizationConfigMapChanges(ctx context.Context, c client.Client,
 	if err != nil {
 		return err
 	}
+
+	// Create or update virtualization dashboards (in open-cluster-management-observability namespace)
+	if err := common.CreateOrUpdateDashboards(ctx, c, common.VirtualizationDashboardFiles); err != nil {
+		return err
+	}
+
 	log.Info("rs - virtualization configmap changes applied")
 
 	return nil
@@ -115,4 +121,7 @@ func CleanupRSVirtualizationResources(ctx context.Context, c client.Client, name
 		DefaultNamespace:         common.DefaultNamespace,
 	}
 	common.CleanupComponentResources(ctx, c, componentConfig, namespace, configNamespace, bindingUpdated)
+
+	// Cleanup virtualization dashboards (from open-cluster-management-observability namespace)
+	common.DeleteDashboards(ctx, c, common.VirtualizationDashboardFiles)
 }

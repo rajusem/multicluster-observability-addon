@@ -115,6 +115,12 @@ func ApplyRSNamespaceConfigMapChanges(ctx context.Context, c client.Client, conf
 	if err != nil {
 		return err
 	}
+
+	// Create or update namespace dashboards (in open-cluster-management-observability namespace)
+	if err := common.CreateOrUpdateDashboards(ctx, c, common.NamespaceDashboardFiles); err != nil {
+		return err
+	}
+
 	log.Info("rs - namespace configmap changes applied")
 
 	return nil
@@ -132,4 +138,7 @@ func CleanupRSNamespaceResources(ctx context.Context, c client.Client, namespace
 		DefaultNamespace:         common.DefaultNamespace,
 	}
 	common.CleanupComponentResources(ctx, c, componentConfig, namespace, configNamespace, bindingUpdated)
+
+	// Cleanup namespace dashboards (from open-cluster-management-observability namespace)
+	common.DeleteDashboards(ctx, c, common.NamespaceDashboardFiles)
 }
