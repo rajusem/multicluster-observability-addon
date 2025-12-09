@@ -28,6 +28,12 @@ const (
 	KeyUserWorkloadInstrumentation   = "userWorkloadInstrumentation"
 
 	KeyPlatformMetricsUI = "platformMetricsUI"
+
+	// Right-Sizing Keys
+	KeyPlatformNamespaceRightSizing            = "platformNamespaceRightSizing"
+	KeyPlatformNamespaceRightSizingBinding     = "platformNamespaceRightSizingBinding"
+	KeyPlatformVirtualizationRightSizing       = "platformVirtualizationRightSizing"
+	KeyPlatformVirtualizationRightSizingBinding = "platformVirtualizationRightSizingBinding"
 )
 
 type CollectionKind string
@@ -79,8 +85,16 @@ type PlatformOptions struct {
 	AnalyticsOptions AnalyticsOptions
 }
 
+type RightSizingOptions struct {
+	NamespaceEnabled      bool
+	NamespaceBinding      string
+	VirtualizationEnabled bool
+	VirtualizationBinding string
+}
+
 type AnalyticsOptions struct {
 	IncidentDetection IncidentDetection
+	RightSizing       RightSizingOptions
 }
 
 type UserWorkloadOptions struct {
@@ -239,6 +253,21 @@ func BuildOptions(addOnDeployment *addonapiv1alpha1.AddOnDeploymentConfig) (Opti
 			if keyvalue.Value == string(UIPluginV1alpha1) && opts.Platform.Metrics.CollectionEnabled {
 				opts.Platform.Metrics.UI.Enabled = true
 			}
+		// Right-Sizing Options
+		case KeyPlatformNamespaceRightSizing:
+			if keyvalue.Value == "true" || keyvalue.Value == "enabled" {
+				opts.Platform.Enabled = true
+				opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled = true
+			}
+		case KeyPlatformNamespaceRightSizingBinding:
+			opts.Platform.AnalyticsOptions.RightSizing.NamespaceBinding = keyvalue.Value
+		case KeyPlatformVirtualizationRightSizing:
+			if keyvalue.Value == "true" || keyvalue.Value == "enabled" {
+				opts.Platform.Enabled = true
+				opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled = true
+			}
+		case KeyPlatformVirtualizationRightSizingBinding:
+			opts.Platform.AnalyticsOptions.RightSizing.VirtualizationBinding = keyvalue.Value
 		}
 	}
 	return opts, opts.validate()

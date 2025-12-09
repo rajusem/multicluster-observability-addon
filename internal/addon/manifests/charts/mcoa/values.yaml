@@ -15,3 +15,8 @@ tracing:
 analytics:
   incidentDetection:
     enabled: false
+  rightSizing:
+    namespaceEnabled: false
+    namespaceBinding: ""
+    virtualizationEnabled: false
+    virtualizationBinding: ""

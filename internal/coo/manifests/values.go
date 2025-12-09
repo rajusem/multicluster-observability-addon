@@ -9,6 +9,7 @@ import (
 	"github.com/stolostron/multicluster-observability-addon/internal/addon"
 	"github.com/stolostron/multicluster-observability-addon/internal/addon/config"
 	imanifests "github.com/stolostron/multicluster-observability-addon/internal/analytics/incident-detection/manifests"
+	rsmanifests "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/manifests"
 	"github.com/stolostron/multicluster-observability-addon/internal/perses/dashboards/acm"
 	incident_management "github.com/stolostron/multicluster-observability-addon/internal/perses/dashboards/incident-management"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,6 +40,7 @@ type COOValues struct {
 	Dashboards         []DashboardValue                    `json:"dashboards,omitempty"`
 	Metrics            *UIValues                           `json:"metrics,omitempty"`
 	IncidentDetection  *imanifests.IncidentDetectionValues `json:"incidentDetection,omitempty"`
+	RightSizing        *rsmanifests.RightSizingValues      `json:"rightSizing,omitempty"`
 }
 
 type UIValues struct {
@@ -48,6 +50,7 @@ type UIValues struct {
 func BuildValues(opts addon.Options, installOfCOOOnTheHubIsNeeded bool, isHubCluster bool) *COOValues {
 	var dashboards []DashboardValue
 	var incidentDetectionEnabled bool
+	var rightSizingEnabled bool
 	metricsUI := enableUI(opts.Platform.Metrics, isHubCluster)
 	if metricsUI != nil {
 		if metricsUI.Enabled {
@@ -66,8 +69,14 @@ func BuildValues(opts addon.Options, installOfCOOOnTheHubIsNeeded bool, isHubClu
 		}
 	}
 
+	// Handle right-sizing
+	rightSizing := rsmanifests.EnableRightSizing(opts.Platform.AnalyticsOptions.RightSizing)
+	if rightSizing != nil {
+		rightSizingEnabled = rightSizing.NamespaceEnabled || rightSizing.VirtualizationEnabled
+	}
+
 	var installCOO bool
-	if (metricsUI != nil && metricsUI.Enabled) || incidentDetectionEnabled {
+	if (metricsUI != nil && metricsUI.Enabled) || incidentDetectionEnabled || rightSizingEnabled {
 		if isHubCluster {
 			installCOO = installOfCOOOnTheHubIsNeeded
 		} else {
@@ -77,14 +86,15 @@ func BuildValues(opts addon.Options, installOfCOOOnTheHubIsNeeded bool, isHubClu
 
 	return &COOValues{
 		// Decide if this chart is needed
-		Enabled: len(dashboards) > 0 || incidentDetectionEnabled,
+		Enabled: len(dashboards) > 0 || incidentDetectionEnabled || rightSizingEnabled,
 		// Decide if COO chart is needs to be installed
 		InstallCOO:         installCOO,
-		MonitoringUIPlugin: len(dashboards) > 0 || incidentDetectionEnabled,
+		MonitoringUIPlugin: len(dashboards) > 0 || incidentDetectionEnabled || rightSizingEnabled,
 		Perses:             len(dashboards) > 0,
 		Dashboards:         dashboards,
 		Metrics:            metricsUI,
 		IncidentDetection:  incidentDetection,
+		RightSizing:        rightSizing,
 	}
 }
 

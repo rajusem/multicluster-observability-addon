@@ -10,8 +10,11 @@ import (
 	"github.com/stolostron/multicluster-observability-addon/internal/addon"
 	"github.com/stolostron/multicluster-observability-addon/internal/addon/common"
 	addoncfg "github.com/stolostron/multicluster-observability-addon/internal/addon/config"
+	rscommon "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/common"
+	rshandlers "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/handlers"
 	mconfig "github.com/stolostron/multicluster-observability-addon/internal/metrics/config"
 	mresources "github.com/stolostron/multicluster-observability-addon/internal/metrics/resource"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
@@ -67,6 +70,36 @@ var partOfMCOALabelSelector = labels.SelectorFromSet(labels.Set{
 var partOfMCOAPredicate = builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
 	return partOfMCOALabelSelector.Matches(labels.Set(obj.GetLabels()))
 }))
+
+// Rightsizing ConfigMap names
+const (
+	rsNamespaceConfigMapName      = "rs-namespace-config"
+	rsVirtualizationConfigMapName = "rs-virt-config"
+)
+
+// Predicate for rightsizing ConfigMaps
+var rsConfigMapPredicate = builder.WithPredicates(predicate.Funcs{
+	CreateFunc: func(e event.CreateEvent) bool {
+		return isRightSizingConfigMap(e.Object)
+	},
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		return isRightSizingConfigMap(e.ObjectNew)
+	},
+	DeleteFunc: func(e event.DeleteEvent) bool {
+		return isRightSizingConfigMap(e.Object)
+	},
+	GenericFunc: func(e event.GenericEvent) bool {
+		return isRightSizingConfigMap(e.Object)
+	},
+})
+
+func isRightSizingConfigMap(obj client.Object) bool {
+	if obj.GetNamespace() != addoncfg.InstallNamespace {
+		return false
+	}
+	name := obj.GetName()
+	return name == rsNamespaceConfigMapName || name == rsVirtualizationConfigMapName
+}
 
 type ResourceCreatorManager struct {
 	mgr    *ctrl.Manager
@@ -177,7 +210,36 @@ func (r *ResourceCreatorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, fmt.Errorf("failed to clean orphan resources: %w", err)
 	}
 
+	// Reconcile right-sizing resources
+	if err := r.reconcileRightSizing(ctx, opts); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile right-sizing resources: %w", err)
+	}
+
 	return ctrl.Result{}, nil
+}
+
+// reconcileRightSizing handles the right-sizing feature reconciliation
+func (r *ResourceCreatorReconciler) reconcileRightSizing(ctx context.Context, opts addon.Options) error {
+	rsOpts := rscommon.RightSizingOptions{
+		NamespaceEnabled:      opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled,
+		NamespaceBinding:      opts.Platform.AnalyticsOptions.RightSizing.NamespaceBinding,
+		VirtualizationEnabled: opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled,
+		VirtualizationBinding: opts.Platform.AnalyticsOptions.RightSizing.VirtualizationBinding,
+		ConfigNamespace:       addoncfg.InstallNamespace,
+	}
+
+	// Handle right-sizing if any feature is enabled
+	if rshandlers.IsRightSizingEnabled(rsOpts) {
+		r.Log.V(2).Info("right-sizing enabled, reconciling resources")
+		if err := rshandlers.HandleRightSizing(ctx, r.Client, rsOpts); err != nil {
+			return fmt.Errorf("failed to handle right-sizing: %w", err)
+		}
+	} else {
+		r.Log.V(2).Info("right-sizing disabled, cleaning up resources")
+		rshandlers.CleanupAllRightSizingResources(ctx, r.Client, addoncfg.InstallNamespace)
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -192,6 +254,8 @@ func (r *ResourceCreatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&cooprometheusv1alpha1.PrometheusAgent{}, r.enqueueForMCOAOwnedResources()).
 		Watches(&cooprometheusv1alpha1.ScrapeConfig{}, r.enqueueForMCOControlledResources(), partOfMCOAPredicate).
 		Watches(&prometheusv1.PrometheusRule{}, r.enqueueForMCOControlledResources(), partOfMCOAPredicate).
+		// Trigger reconciliations if rightsizing ConfigMaps change
+		Watches(&corev1.ConfigMap{}, r.enqueueAODC(), rsConfigMapPredicate).
 		Complete(r)
 }
 

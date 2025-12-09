@@ -423,6 +423,8 @@ github.com/stoewer/go-strcase v1.3.1 h1:iS0MdW+kVTxgMoE1LAZyMiYJFKlOzLooE4Mxjirt
 github.com/stoewer/go-strcase v1.3.1/go.mod h1:fAH5hQ5pehh+j3nZfvwdk2RgEgQjAoM8wodgtPmh1xo=
 github.com/stolostron/cluster-lifecycle-api v0.0.0-20250625062343-7394aeb3186c h1:GPDDT9V2wFTXfEORRLJ6nvNn6N3MePvl/TAinoKXpaA=
 github.com/stolostron/cluster-lifecycle-api v0.0.0-20250625062343-7394aeb3186c/go.mod h1:NXH0aFk6x/LNFUtJ6AHAiwfGrEu4/mx9wsV3scfUSjs=
+github.com/stolostron/kubernetes-dependency-watches v0.10.0 h1:brg9FCZUvd1gnm5wmsv/InfErcPUvYcZsK/LWNRr+wg=
+github.com/stolostron/kubernetes-dependency-watches v0.10.0/go.mod h1:j1DBv/3JjwDX3bT/oKB4YvSwJ6DEVcrUpEzKbFLM0QM=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=
 github.com/stretchr/objx v0.5.0/go.mod h1:Yh+to48EsGEfYuaHDzXPcE3xhTkx73EhmCGUpEOglKo=
@@ -640,6 +642,10 @@ open-cluster-management.io/addon-framework v1.0.1-0.20250910091630-7f19b89a319b 
 open-cluster-management.io/addon-framework v1.0.1-0.20250910091630-7f19b89a319b/go.mod h1:IrMjmd3dLjJtrP2Aqa0Sf/3lDysJHa4j5lNQQ13NxVs=
 open-cluster-management.io/api v1.0.1-0.20250827024027-f3e5dab96ea1 h1:X5dL1aKnkLGHItMsEexGhLZsyZJHDlxGD4eRvsD181g=
 open-cluster-management.io/api v1.0.1-0.20250827024027-f3e5dab96ea1/go.mod h1:lEc5Wkc9ON5ym/qAtIqNgrE7NW7IEOCOC611iQMlnKM=
+open-cluster-management.io/config-policy-controller v0.16.0 h1:hIrgTvJXYRuYZ+Gph4EPq+8heQKczWlCSSctGQVi6OI=
+open-cluster-management.io/config-policy-controller v0.16.0/go.mod h1:NEl+/esHnMIbRRwndgBqzILqL+nro2mbrcDowZHSMZk=
+open-cluster-management.io/governance-policy-propagator v0.16.0 h1:2oBWdVYgJXcx75d8RS4Ttsic5SIaE5ioG+mug4RAPqI=
+open-cluster-management.io/governance-policy-propagator v0.16.0/go.mod h1:bLA1TlVhKm6f14f4ZgqvTFqGSN3buBYVjbqZ6CQ63zM=
 open-cluster-management.io/sdk-go v1.0.1-0.20250811075710-18b20e146feb h1:voE6JR6Xi8wNTSkhADHP19FpGICUpqt1/lEREQt7TVU=
 open-cluster-management.io/sdk-go v1.0.1-0.20250811075710-18b20e146feb/go.mod h1:sHOVhUgA286ceEq3IjFWqxobt9Lu+VBCAUZByFgN0oM=
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 h1:jpcvIRr3GLoUoEKRkHKSmGjxb6lWwrBlJsXc+eUYQHM=

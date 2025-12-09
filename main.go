@@ -22,6 +22,8 @@ import (
 	uiplugin "github.com/rhobs/observability-operator/pkg/apis/uiplugin/v1alpha1"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	addoncfg "github.com/stolostron/multicluster-observability-addon/internal/addon/config"
+	rshandlers "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/handlers"
 	addonctrl "github.com/stolostron/multicluster-observability-addon/internal/controllers/addon"
 	"github.com/stolostron/multicluster-observability-addon/internal/controllers/resourcecreator"
 	"github.com/stolostron/multicluster-observability-addon/internal/controllers/watcher"
@@ -35,8 +37,11 @@ import (
 	"open-cluster-management.io/addon-framework/pkg/version"
 	addonapiv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
+	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
 	workv1 "open-cluster-management.io/api/work/v1"
+	policyv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var scheme = runtime.NewScheme()
@@ -51,12 +56,14 @@ func init() {
 	utilruntime.Must(operatorsv1.AddToScheme(scheme))
 	utilruntime.Must(operatorsv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
+	utilruntime.Must(clusterv1beta1.AddToScheme(scheme)) // Adds Placement for rightsizing
 	utilruntime.Must(cooprometheusv1.AddToScheme(scheme))
 	utilruntime.Must(cooprometheusv1alpha1.AddToScheme(scheme)) // Adds prometheusAgent and scrapeConfig
 	utilruntime.Must(prometheusv1.AddToScheme(scheme))          // Adds prometheusRule
 	utilruntime.Must(uiplugin.AddToScheme(scheme))
 	utilruntime.Must(hyperv1.AddToScheme(scheme))
 	utilruntime.Must(persesv1.AddToScheme(scheme))
+	utilruntime.Must(policyv1.AddToScheme(scheme)) // Adds Policy and PlacementBinding for rightsizing
 
 	// +kubebuilder:scaffold:scheme
 }
@@ -97,6 +104,7 @@ func newCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(newControllerCommand())
+	cmd.AddCommand(newCleanupCommand())
 
 	return cmd
 }
@@ -145,6 +153,52 @@ func runControllers(ctx context.Context, kubeConfig *rest.Config) error {
 	}
 
 	<-ctx.Done()
+
+	return nil
+}
+
+func newCleanupCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "cleanup",
+		Short: "Cleanup right-sizing resources before pod termination",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCleanup()
+		},
+	}
+	return cmd
+}
+
+func runCleanup() error {
+	logger := log.NewLogger("mcoa-cleanup", log.WithVerbosity(logVerbosity))
+	logger.Info("Starting right-sizing cleanup")
+
+	time.Sleep(4 * time.Second)
+
+	// Get in-cluster config
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		logger.Error(err, "Failed to get kubeconfig")
+		return err
+	}
+
+	// Create client
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		logger.Error(err, "Failed to create client")
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	time.Sleep(4 * time.Second)
+
+	// Cleanup all right-sizing resources
+	logger.Info("Right-sizing cleanup started")
+	rshandlers.CleanupAllRightSizingResources(ctx, c, addoncfg.InstallNamespace)
+
+	logger.Info("Right-sizing cleanup completed")
+	time.Sleep(4 * time.Second)
+	fmt.Println("Done!")
 
 	return nil
 }
