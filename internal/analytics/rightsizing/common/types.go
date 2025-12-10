@@ -53,14 +53,15 @@ type RSNamespaceConfigMapData struct {
 
 // ComponentConfig holds configuration for a right-sizing component
 type ComponentConfig struct {
-	ComponentType            ComponentType
-	ConfigMapName            string
-	PlacementName            string
-	PlacementBindingName     string
-	PrometheusRulePolicyName string
-	DefaultNamespace         string
-	GetDefaultConfigFunc     func() map[string]string
-	ApplyChangesFunc         func(RSNamespaceConfigMapData) error
+	ComponentType        ComponentType
+	ConfigMapName        string
+	PlacementName        string
+	DefaultNamespace     string
+	GetDefaultConfigFunc func() map[string]string
+	ApplyChangesFunc     func(RSNamespaceConfigMapData) error
+	// Addon-based deployment fields
+	AddonName    string // Name of the ClusterManagementAddOn (e.g., "observability-rightsizing-namespace")
+	TemplateName string // Name of the AddOnTemplate
 }
 
 // ComponentState holds the runtime state for a component

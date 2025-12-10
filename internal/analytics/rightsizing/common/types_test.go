@@ -57,21 +57,21 @@ func TestComponentConfig(t *testing.T) {
 	}
 
 	config := ComponentConfig{
-		ComponentType:            ComponentTypeNamespace,
-		ConfigMapName:            "test-configmap",
-		PlacementName:            "test-placement",
-		PlacementBindingName:     "test-binding",
-		PrometheusRulePolicyName: "test-policy",
-		DefaultNamespace:         DefaultNamespace,
-		GetDefaultConfigFunc:     getDefaultConfig,
+		ComponentType:        ComponentTypeNamespace,
+		ConfigMapName:        "test-configmap",
+		PlacementName:        "test-placement",
+		DefaultNamespace:     DefaultNamespace,
+		AddonName:            "test-addon",
+		TemplateName:         "test-template",
+		GetDefaultConfigFunc: getDefaultConfig,
 	}
 
 	assert.Equal(t, ComponentTypeNamespace, config.ComponentType)
 	assert.Equal(t, "test-configmap", config.ConfigMapName)
 	assert.Equal(t, "test-placement", config.PlacementName)
-	assert.Equal(t, "test-binding", config.PlacementBindingName)
-	assert.Equal(t, "test-policy", config.PrometheusRulePolicyName)
 	assert.Equal(t, DefaultNamespace, config.DefaultNamespace)
+	assert.Equal(t, "test-addon", config.AddonName)
+	assert.Equal(t, "test-template", config.TemplateName)
 	assert.NotNil(t, config.GetDefaultConfigFunc)
 
 	result := config.GetDefaultConfigFunc()

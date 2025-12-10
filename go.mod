@@ -39,8 +39,6 @@ require (
 	github.com/rhobs/observability-operator/pkg/apis v0.0.0-20250902133632-f98bd8a20a80
 	golang.org/x/text v0.27.0
 	gopkg.in/yaml.v2 v2.4.0
-	open-cluster-management.io/config-policy-controller v0.16.0
-	open-cluster-management.io/governance-policy-propagator v0.16.0
 )
 
 require (
@@ -124,7 +122,6 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/cast v1.7.0 // indirect
 	github.com/stoewer/go-strcase v1.3.1 // indirect
-	github.com/stolostron/kubernetes-dependency-watches v0.10.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect

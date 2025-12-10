@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v2"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
 )
 
@@ -28,6 +29,30 @@ func GetDefaultRSPrometheusRuleConfig() RSPrometheusRuleConfig {
 	ruleConfig.NamespaceFilterCriteria.ExclusionCriteria = []string{"openshift.*"}
 	ruleConfig.RecommendationPercentage = DefaultRecommendationPercentage
 	return ruleConfig
+}
+
+// GetDefaultRSPlacement creates a default placement configuration for right-sizing
+func GetDefaultRSPlacement() clusterv1beta1.Placement {
+	return clusterv1beta1.Placement{
+		Spec: clusterv1beta1.PlacementSpec{
+			ClusterSets: []string{"global"},
+			Predicates: []clusterv1beta1.ClusterPredicate{
+				{
+					RequiredClusterSelector: clusterv1beta1.ClusterSelector{
+						LabelSelector: metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "vendor",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"OpenShift"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
 }
 
 // BuildNamespaceFilter creates a namespace filter string for Prometheus queries

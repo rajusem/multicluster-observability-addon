@@ -17,8 +17,8 @@ func TestGetComponentConfig(t *testing.T) {
 	assert.Equal(t, common.ComponentTypeNamespace, config.ComponentType)
 	assert.Equal(t, ConfigMapName, config.ConfigMapName)
 	assert.Equal(t, PlacementName, config.PlacementName)
-	assert.Equal(t, PlacementBindingName, config.PlacementBindingName)
-	assert.Equal(t, PrometheusRulePolicyName, config.PrometheusRulePolicyName)
+	assert.Equal(t, AddonName, config.AddonName)
+	assert.Equal(t, TemplateName, config.TemplateName)
 	assert.Equal(t, common.DefaultNamespace, config.DefaultNamespace)
 	assert.NotNil(t, config.GetDefaultConfigFunc)
 }
@@ -34,11 +34,11 @@ func TestGetDefaultRSNamespaceConfig(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	assert.Equal(t, "rs-policyset-binding", PlacementBindingName)
-	assert.Equal(t, "rs-placement", PlacementName)
-	assert.Equal(t, "rs-prom-rules-policy", PrometheusRulePolicyName)
+	assert.Equal(t, "rs-namespace-placement", PlacementName)
 	assert.Equal(t, "acm-rs-namespace-prometheus-rules", PrometheusRuleName)
 	assert.Equal(t, "rs-namespace-config", ConfigMapName)
+	assert.Equal(t, "observability-rightsizing-namespace", AddonName)
+	assert.Equal(t, "rs-namespace-template", TemplateName)
 }
 
 func TestComponentState(t *testing.T) {

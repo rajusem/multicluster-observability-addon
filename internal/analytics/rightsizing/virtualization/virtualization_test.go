@@ -12,11 +12,11 @@ import (
 )
 
 func TestConstants(t *testing.T) {
-	assert.Equal(t, "rs-virt-policyset-binding", PlacementBindingName)
 	assert.Equal(t, "rs-virt-placement", PlacementName)
-	assert.Equal(t, "rs-virt-prom-rules-policy", PrometheusRulePolicyName)
 	assert.Equal(t, "acm-rs-virt-prometheus-rules", PrometheusRuleName)
 	assert.Equal(t, "rs-virt-config", ConfigMapName)
+	assert.Equal(t, "observability-rightsizing-virtualization", AddonName)
+	assert.Equal(t, "rs-virt-template", TemplateName)
 }
 
 func TestComponentState(t *testing.T) {

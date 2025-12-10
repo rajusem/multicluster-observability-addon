@@ -39,7 +39,6 @@ import (
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
 	workv1 "open-cluster-management.io/api/work/v1"
-	policyv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -63,7 +62,6 @@ func init() {
 	utilruntime.Must(uiplugin.AddToScheme(scheme))
 	utilruntime.Must(hyperv1.AddToScheme(scheme))
 	utilruntime.Must(persesv1.AddToScheme(scheme))
-	utilruntime.Must(policyv1.AddToScheme(scheme)) // Adds Policy and PlacementBinding for rightsizing
 
 	// +kubebuilder:scaffold:scheme
 }

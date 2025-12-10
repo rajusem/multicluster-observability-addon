@@ -16,11 +16,12 @@ import (
 
 const (
 	// Namespace-specific resource names
-	PlacementBindingName     = "rs-policyset-binding"
-	PlacementName            = "rs-placement"
-	PrometheusRulePolicyName = "rs-prom-rules-policy"
-	PrometheusRuleName       = "acm-rs-namespace-prometheus-rules"
-	ConfigMapName            = "rs-namespace-config"
+	PlacementName      = "rs-namespace-placement"
+	PrometheusRuleName = "acm-rs-namespace-prometheus-rules"
+	ConfigMapName      = "rs-namespace-config"
+	// Addon-based deployment names
+	AddonName    = "observability-rightsizing-namespace"
+	TemplateName = "rs-namespace-template"
 )
 
 var (
@@ -36,13 +37,13 @@ var (
 // GetComponentConfig returns the component configuration for namespace right-sizing
 func GetComponentConfig(bindingNamespace string) common.ComponentConfig {
 	return common.ComponentConfig{
-		ComponentType:            common.ComponentTypeNamespace,
-		ConfigMapName:            ConfigMapName,
-		PlacementName:            PlacementName,
-		PlacementBindingName:     PlacementBindingName,
-		PrometheusRulePolicyName: PrometheusRulePolicyName,
-		DefaultNamespace:         common.DefaultNamespace,
-		GetDefaultConfigFunc:     GetDefaultRSNamespaceConfig,
+		ComponentType:        common.ComponentTypeNamespace,
+		ConfigMapName:        ConfigMapName,
+		PlacementName:        PlacementName,
+		DefaultNamespace:     common.DefaultNamespace,
+		GetDefaultConfigFunc: GetDefaultRSNamespaceConfig,
+		AddonName:            AddonName,
+		TemplateName:         TemplateName,
 		ApplyChangesFunc: func(configData common.RSNamespaceConfigMapData) error {
 			// This will be set up with proper context when called
 			return nil
@@ -55,13 +56,13 @@ func HandleRightSizing(ctx context.Context, c client.Client, opts common.RightSi
 	log.V(1).Info("rs - handling namespace right-sizing")
 
 	componentConfig := common.ComponentConfig{
-		ComponentType:            common.ComponentTypeNamespace,
-		ConfigMapName:            ConfigMapName,
-		PlacementName:            PlacementName,
-		PlacementBindingName:     PlacementBindingName,
-		PrometheusRulePolicyName: PrometheusRulePolicyName,
-		DefaultNamespace:         common.DefaultNamespace,
-		GetDefaultConfigFunc:     GetDefaultRSNamespaceConfig,
+		ComponentType:        common.ComponentTypeNamespace,
+		ConfigMapName:        ConfigMapName,
+		PlacementName:        PlacementName,
+		DefaultNamespace:     common.DefaultNamespace,
+		GetDefaultConfigFunc: GetDefaultRSNamespaceConfig,
+		AddonName:            AddonName,
+		TemplateName:         TemplateName,
 		ApplyChangesFunc: func(configData common.RSNamespaceConfigMapData) error {
 			return ApplyRSNamespaceConfigMapChanges(ctx, c, configData, ComponentState.Namespace)
 		},
@@ -94,25 +95,26 @@ func GetNamespaceRSConfigMapPredicateFunc(ctx context.Context, c client.Client, 
 	})
 }
 
-// ApplyRSNamespaceConfigMapChanges updates PrometheusRule, Policy, Placement based on configmap changes
+// ApplyRSNamespaceConfigMapChanges creates/updates the addon resources based on configmap changes
+// This creates ClusterManagementAddOn, AddOnTemplate (with PrometheusRule), and Placement
 func ApplyRSNamespaceConfigMapChanges(ctx context.Context, c client.Client, configData common.RSNamespaceConfigMapData, namespace string) error {
 	prometheusRule, err := GeneratePrometheusRule(configData)
 	if err != nil {
 		return err
 	}
 
-	err = CreateOrUpdatePrometheusRulePolicy(ctx, c, prometheusRule, namespace)
-	if err != nil {
-		return err
+	// Create addon configuration
+	addonConfig := common.RightSizingAddonConfig{
+		AddonName:          AddonName,
+		TemplateName:       TemplateName,
+		PlacementName:      PlacementName,
+		PlacementNamespace: namespace,
+		PrometheusRule:     prometheusRule,
+		PlacementSpec:      configData.PlacementConfiguration.Spec,
 	}
 
-	err = CreateUpdatePlacement(ctx, c, configData.PlacementConfiguration, namespace)
-	if err != nil {
-		return err
-	}
-
-	err = CreatePlacementBinding(ctx, c, namespace)
-	if err != nil {
+	// Create or update the addon resources
+	if err := common.CreateOrUpdateRightSizingAddon(ctx, c, addonConfig); err != nil {
 		return err
 	}
 
@@ -121,21 +123,21 @@ func ApplyRSNamespaceConfigMapChanges(ctx context.Context, c client.Client, conf
 		return err
 	}
 
-	log.Info("rs - namespace configmap changes applied")
+	log.Info("rs - namespace addon resources applied")
 
 	return nil
 }
 
 // CleanupRSNamespaceResources cleans up the resources created for namespace right-sizing
 func CleanupRSNamespaceResources(ctx context.Context, c client.Client, namespace string, configNamespace string, bindingUpdated bool) {
-	log.V(1).Info("rs - cleaning up namespace resources if exist")
+	log.V(1).Info("rs - cleaning up namespace addon resources if exist")
 	componentConfig := common.ComponentConfig{
-		ComponentType:            common.ComponentTypeNamespace,
-		ConfigMapName:            ConfigMapName,
-		PlacementName:            PlacementName,
-		PlacementBindingName:     PlacementBindingName,
-		PrometheusRulePolicyName: PrometheusRulePolicyName,
-		DefaultNamespace:         common.DefaultNamespace,
+		ComponentType:        common.ComponentTypeNamespace,
+		ConfigMapName:        ConfigMapName,
+		PlacementName:        PlacementName,
+		DefaultNamespace:     common.DefaultNamespace,
+		AddonName:            AddonName,
+		TemplateName:         TemplateName,
 	}
 	common.CleanupComponentResources(ctx, c, componentConfig, namespace, configNamespace, bindingUpdated)
 
