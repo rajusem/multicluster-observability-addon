@@ -4,6 +4,7 @@ metadata:
   name: multicluster-observability-addon
   annotations:
     addon.open-cluster-management.io/lifecycle: addon-manager
+    observability.open-cluster-management.io/right-sizing-capable: "v1"
 spec:
   addOnMeta:
     displayName: Multicluster Observability Addon
