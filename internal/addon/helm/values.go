@@ -9,6 +9,8 @@ import (
 	"github.com/stolostron/multicluster-observability-addon/internal/addon"
 	"github.com/stolostron/multicluster-observability-addon/internal/addon/common"
 	addoncfg "github.com/stolostron/multicluster-observability-addon/internal/addon/config"
+	rshandlers "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/handlers"
+	rsmanifests "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/manifests"
 	chandlers "github.com/stolostron/multicluster-observability-addon/internal/coo/handlers"
 	cmanifests "github.com/stolostron/multicluster-observability-addon/internal/coo/manifests"
 	lhandlers "github.com/stolostron/multicluster-observability-addon/internal/logging/handlers"
@@ -30,11 +32,12 @@ var (
 )
 
 type HelmChartValues struct {
-	Enabled bool                      `json:"enabled"`
-	Metrics *mmanifests.MetricsValues `json:"metrics,omitempty"`
-	Logging *lmanifests.LoggingValues `json:"logging,omitempty"`
-	Tracing *tmanifests.TracingValues `json:"tracing,omitempty"`
-	COO     *cmanifests.COOValues     `json:"coo,omitempty"`
+	Enabled      bool                            `json:"enabled"`
+	Metrics      *mmanifests.MetricsValues       `json:"metrics,omitempty"`
+	Logging      *lmanifests.LoggingValues       `json:"logging,omitempty"`
+	Tracing      *tmanifests.TracingValues       `json:"tracing,omitempty"`
+	COO          *cmanifests.COOValues           `json:"coo,omitempty"`
+	RightSizing  *rsmanifests.RightSizingValues  `json:"rightSizing,omitempty"`
 }
 
 func GetValuesFunc(ctx context.Context, k8s client.Client, logger logr.Logger) addonfactory.GetValuesFunc {
@@ -81,6 +84,11 @@ func GetValuesFunc(ctx context.Context, k8s client.Client, logger logr.Logger) a
 		userValues.COO, err = getCOOValues(ctx, k8s, logger, cluster, opts)
 		if err != nil {
 			return nil, err
+		}
+
+		userValues.RightSizing, err = getRightSizingValues(ctx, k8s, logger, cluster, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get right-sizing values: %w", err)
 		}
 
 		return addonfactory.JsonStructToValues(userValues)
@@ -171,4 +179,29 @@ func getAddOnDeploymentConfig(ctx context.Context, k8s client.Client, mcAddon *a
 		return aodc, err
 	}
 	return aodc, nil
+}
+
+func getRightSizingValues(ctx context.Context, k8s client.Client, logger logr.Logger, cluster *clusterv1.ManagedCluster, opts addon.Options) (*rsmanifests.RightSizingValues, error) {
+	// Skip if neither namespace nor virtualization right-sizing is enabled
+	if !opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled && !opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled {
+		return nil, nil
+	}
+
+	// Right-sizing only works on OpenShift clusters
+	if !common.IsOpenShiftVendor(cluster) {
+		logger.V(2).Info("Skipping right-sizing for non-OpenShift cluster", "cluster", cluster.Name)
+		return nil, nil
+	}
+
+	optsBuilder := rshandlers.OptionsBuilder{
+		Client: k8s,
+		Logger: logger,
+	}
+
+	rsOpts, err := optsBuilder.Build(ctx, cluster, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return rsmanifests.BuildValues(rsOpts)
 }

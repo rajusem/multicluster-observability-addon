@@ -15,11 +15,13 @@ const (
 	KeyOpenShiftLoggingChannel = "openshiftLoggingChannel"
 
 	// Platform Observability Keys
-	KeyPlatformMetricsCollection   = "platformMetricsCollection"
-	KeyPlatformLogsCollection      = "platformLogsCollection"
-	KeyPlatformIncidentDetection   = "platformIncidentDetection"
-	KeyMetricsHubHostname          = "metricsHubHostname"
-	KeyMetricsAlertManagerHostname = "metricsAlertManagerHostname"
+	KeyPlatformMetricsCollection         = "platformMetricsCollection"
+	KeyPlatformLogsCollection            = "platformLogsCollection"
+	KeyPlatformIncidentDetection         = "platformIncidentDetection"
+	KeyPlatformNamespaceRightSizing      = "platformNamespaceRightSizing"
+	KeyPlatformVirtualizationRightSizing = "platformVirtualizationRightSizing"
+	KeyMetricsHubHostname                = "metricsHubHostname"
+	KeyMetricsAlertManagerHostname       = "metricsAlertManagerHostname"
 
 	// User Workloads Observability Keys
 	KeyUserWorkloadMetricsCollection = "userWorkloadMetricsCollection"
@@ -79,8 +81,14 @@ type PlatformOptions struct {
 	AnalyticsOptions AnalyticsOptions
 }
 
+type RightSizingOptions struct {
+	NamespaceEnabled      bool
+	VirtualizationEnabled bool
+}
+
 type AnalyticsOptions struct {
 	IncidentDetection IncidentDetection
+	RightSizing       RightSizingOptions
 }
 
 type UserWorkloadOptions struct {
@@ -154,6 +162,10 @@ func BuildOptions(addOnDeployment *addonapiv1alpha1.AddOnDeploymentConfig) (Opti
 		return opts, nil
 	}
 
+	// Track if right-sizing keys were explicitly set
+	nsRSExplicitlySet := false
+	virtRSExplicitlySet := false
+
 	for _, keyvalue := range addOnDeployment.Spec.CustomizedVariables {
 		switch keyvalue.Name {
 		// Operator Subscriptions
@@ -213,6 +225,18 @@ func BuildOptions(addOnDeployment *addonapiv1alpha1.AddOnDeploymentConfig) (Opti
 				opts.Platform.Enabled = true
 				opts.Platform.AnalyticsOptions.IncidentDetection.Enabled = true
 			}
+		case KeyPlatformNamespaceRightSizing:
+			nsRSExplicitlySet = true
+			if keyvalue.Value == "enabled" {
+				opts.Platform.Enabled = true
+				opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled = true
+			}
+		case KeyPlatformVirtualizationRightSizing:
+			virtRSExplicitlySet = true
+			if keyvalue.Value == "enabled" {
+				opts.Platform.Enabled = true
+				opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled = true
+			}
 		// User Workload Observability Options
 		case KeyUserWorkloadMetricsCollection:
 			if keyvalue.Value == string(PrometheusAgentV1alpha1) {
@@ -241,5 +265,17 @@ func BuildOptions(addOnDeployment *addonapiv1alpha1.AddOnDeploymentConfig) (Opti
 			}
 		}
 	}
+
+	// Auto-enable right-sizing by default if not explicitly set
+	// This enables right-sizing on fresh installs
+	if !nsRSExplicitlySet {
+		opts.Platform.Enabled = true
+		opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled = true
+	}
+	if !virtRSExplicitlySet {
+		opts.Platform.Enabled = true
+		opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled = true
+	}
+
 	return opts, opts.validate()
 }
