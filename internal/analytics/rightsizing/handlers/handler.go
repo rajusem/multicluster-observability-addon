@@ -16,9 +16,7 @@ import (
 	"github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing"
 	rsnamespace "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/namespace"
 	rsvirtualization "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/virtualization"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -27,18 +25,6 @@ import (
 type OptionsBuilder struct {
 	Client client.Client
 	Logger logr.Logger
-}
-
-// Options contains the right-sizing configuration for helm values
-type Options struct {
-	NamespaceRightSizing      ComponentOptions
-	VirtualizationRightSizing ComponentOptions
-}
-
-// ComponentOptions contains the configuration for a single right-sizing component
-type ComponentOptions struct {
-	Enabled         bool
-	PrometheusRules []*monitoringv1.PrometheusRule
 }
 
 // Build builds the right-sizing options based on the addon options and cluster
@@ -136,11 +122,8 @@ func (o *OptionsBuilder) buildVirtualizationOptions(ctx context.Context) (Compon
 }
 
 func (o *OptionsBuilder) getConfigData(ctx context.Context, configMapName string) (rightsizing.RSConfigMapData, error) {
-	cm := &corev1.ConfigMap{}
-	if err := o.Client.Get(ctx, types.NamespacedName{
-		Name:      configMapName,
-		Namespace: addoncfg.InstallNamespace,
-	}, cm); err != nil {
+	cm, err := common.GetConfigMap(ctx, o.Client, addoncfg.InstallNamespace, configMapName)
+	if err != nil {
 		return rightsizing.RSConfigMapData{}, err
 	}
 
