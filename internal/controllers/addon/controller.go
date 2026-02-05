@@ -70,6 +70,7 @@ func NewAddonManager(ctx context.Context, kubeConfig *rest.Config, scheme *runti
 	addonConfigValuesFn := addonfactory.GetAddOnDeploymentConfigValues(
 		addonfactory.NewAddOnDeploymentConfigGetter(addonClient),
 		addonfactory.ToAddOnCustomizedVariableValues,
+		addonfactory.ToAddOnResourceRequirementsValues,
 	)
 
 	agentLogger := logger.WithName("agent")
@@ -85,6 +86,7 @@ func NewAddonManager(ctx context.Context, kubeConfig *rest.Config, scheme *runti
 		).
 		WithGetValuesFuncs(addonConfigValuesFn, addonhelm.GetValuesFunc(ctx, k8sClient, agentLogger)).
 		WithUpdaters(addon.Updaters()).
+		WithAgentHealthProber(addon.HealthProber(k8sClient, agentLogger)).
 		WithAgentRegistrationOption(registrationOption).
 		WithAgentInstallNamespace(
 			// Set agent install namespace from addon deployment config if it exists
@@ -97,7 +99,7 @@ func NewAddonManager(ctx context.Context, kubeConfig *rest.Config, scheme *runti
 		return nil, fmt.Errorf("failed to build helm agent addon: %w", err)
 	}
 
-	err = mgr.AddAgent(&AgentAddonWithDynamicHealthProber{
+	err = mgr.AddAgent(&AgentAddonWithSortedManifests{
 		agent:  mcoaAgentAddon,
 		logger: agentLogger,
 		client: k8sClient,
@@ -109,17 +111,18 @@ func NewAddonManager(ctx context.Context, kubeConfig *rest.Config, scheme *runti
 	return mgr, nil
 }
 
-type AgentAddonWithDynamicHealthProber struct {
+type AgentAddonWithSortedManifests struct {
 	agent  agent.AgentAddon
 	logger logr.Logger
 	client client.Client
 }
 
-func (a *AgentAddonWithDynamicHealthProber) Manifests(cluster *clusterv1.ManagedCluster, addon *addonapiv1alpha1.ManagedClusterAddOn) ([]runtime.Object, error) {
+func (a *AgentAddonWithSortedManifests) Manifests(cluster *clusterv1.ManagedCluster, addon *addonapiv1alpha1.ManagedClusterAddOn) ([]runtime.Object, error) {
 	objects, err := a.agent.Manifests(cluster, addon)
 	if err != nil {
 		return nil, err
 	}
+
 	// Sort the manifests to ensure a stable order of resources, which is crucial for
 	// fields like 'orphaningRules' in ManifestWork to prevent constant reconciliations.
 	slices.SortStableFunc(objects, func(a, b runtime.Object) int {
@@ -156,9 +159,6 @@ func (a *AgentAddonWithDynamicHealthProber) Manifests(cluster *clusterv1.Managed
 	return objects, nil
 }
 
-func (a *AgentAddonWithDynamicHealthProber) GetAgentAddonOptions() agent.AgentAddonOptions {
-	options := a.agent.GetAgentAddonOptions()
-	options.HealthProber = addon.DynamicAgentHealthProber(a.client, a.logger)
-
-	return options
+func (a *AgentAddonWithSortedManifests) GetAgentAddonOptions() agent.AgentAddonOptions {
+	return a.agent.GetAgentAddonOptions()
 }

@@ -113,6 +113,7 @@ type Options struct {
 	InstallNamespace string
 	Tolerations      []corev1.Toleration
 	NodeSelector     map[string]string
+	ResourceReqs     []addonapiv1alpha1.ContainerResourceRequirements
 	ProxyConfig      ProxyConfig
 }
 
@@ -146,6 +147,10 @@ func BuildOptions(addOnDeployment *addonapiv1alpha1.AddOnDeploymentConfig) (Opti
 	if addOnDeployment.Spec.NodePlacement != nil {
 		opts.NodeSelector = addOnDeployment.Spec.NodePlacement.NodeSelector
 		opts.Tolerations = addOnDeployment.Spec.NodePlacement.Tolerations
+	}
+
+	if addOnDeployment.Spec.ResourceRequirements != nil {
+		opts.ResourceReqs = addOnDeployment.Spec.ResourceRequirements
 	}
 
 	if addOnDeployment.Spec.ProxyConfig.HTTPProxy != "" {
@@ -260,14 +265,24 @@ func BuildOptions(addOnDeployment *addonapiv1alpha1.AddOnDeploymentConfig) (Opti
 			}
 			// Observability UI Options
 		case KeyPlatformMetricsUI:
-			if keyvalue.Value == string(UIPluginV1alpha1) && opts.Platform.Metrics.CollectionEnabled {
+			if keyvalue.Value == string(UIPluginV1alpha1) {
 				opts.Platform.Metrics.UI.Enabled = true
 			}
 		}
 	}
 
-	// Auto-enable right-sizing by default if not explicitly set
-	// This enables right-sizing on fresh installs
+	// Auto-enable right-sizing by default when not explicitly configured.
+	//
+	// This behavior is critical for MCO/MCOA coexistence:
+	// - When MCO delegates right-sizing to MCOA (via the right-sizing-capable annotation),
+	//   MCO does NOT sync a "disabled" state to the AddOnDeploymentConfig.
+	// - Instead, MCO leaves the right-sizing keys unset, allowing MCOA's auto-enable
+	//   logic to take over and enable right-sizing automatically.
+	// - This ensures right-sizing works on fresh installs and when MCO delegates to MCOA.
+	//
+	// To explicitly disable right-sizing, set the key to "disabled" in AddOnDeploymentConfig:
+	// - platform.rightsizing.namespace: "disabled"
+	// - platform.rightsizing.virtualization: "disabled"
 	if !nsRSExplicitlySet {
 		opts.Platform.Enabled = true
 		opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled = true
@@ -275,6 +290,11 @@ func BuildOptions(addOnDeployment *addonapiv1alpha1.AddOnDeploymentConfig) (Opti
 	if !virtRSExplicitlySet {
 		opts.Platform.Enabled = true
 		opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled = true
+	}
+
+	// Disable metrics UI if platform metrics collection is not enabled
+	if !opts.Platform.Metrics.CollectionEnabled {
+		opts.Platform.Metrics.UI.Enabled = false
 	}
 
 	return opts, opts.validate()

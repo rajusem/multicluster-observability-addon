@@ -2,12 +2,15 @@ package config
 
 import (
 	"errors"
+	"time"
 )
 
 const (
 	Name              = "multicluster-observability-addon"
 	LabelOCMAddonName = "open-cluster-management.io/addon-name"
 	InstallNamespace  = "open-cluster-management-observability"
+
+	DefaultContextTimeout = 10 * time.Second
 
 	McoaChartDir    = "manifests/charts/mcoa"
 	MetricsChartDir = "manifests/charts/mcoa/charts/metrics"
@@ -59,9 +62,13 @@ const (
 
 	// Feedback rule names
 	IsEstablishedFeedbackName             = "isEstablished"
+	IsEstablishedFeedbackPath             = ".status.conditions[?(@.type==\"Established\")].status"
 	PrometheusOperatorVersionFeedbackName = "prometheusOperatorVersion"
+	PrometheusOperatorVersionFeedbackPath = `.metadata.annotations.operator\.prometheus\.io/version`
 	LastTransitionTimeFeedbackName        = "lastTransitionTime"
+	LastTransitionTimeFeedbackPath        = ".status.conditions[?(@.type==\"Established\")].lastTransitionTime"
 	IsOLMManagedFeedbackName              = "isOLMManaged"
+	IsOLMManagedFeedbackPath              = `.metadata.labels.olm\.managed`
 
 	VendorOverrideAnnotationKey = "mcoa-override-vendor"
 	AnnotationOriginalResource  = "mcoa.openshift.io/original-resource"

@@ -2,15 +2,12 @@ package helm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/stolostron/multicluster-observability-addon/internal/addon"
 	"github.com/stolostron/multicluster-observability-addon/internal/addon/common"
-	addoncfg "github.com/stolostron/multicluster-observability-addon/internal/addon/config"
 	rshandlers "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/handlers"
-	rsmanifests "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/manifests"
 	chandlers "github.com/stolostron/multicluster-observability-addon/internal/coo/handlers"
 	cmanifests "github.com/stolostron/multicluster-observability-addon/internal/coo/manifests"
 	lhandlers "github.com/stolostron/multicluster-observability-addon/internal/logging/handlers"
@@ -20,15 +17,9 @@ import (
 	thandlers "github.com/stolostron/multicluster-observability-addon/internal/tracing/handlers"
 	tmanifests "github.com/stolostron/multicluster-observability-addon/internal/tracing/manifests"
 	"open-cluster-management.io/addon-framework/pkg/addonfactory"
-	addonutils "open-cluster-management.io/addon-framework/pkg/utils"
 	addonapiv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-var (
-	errMissingAODCRef  = errors.New("missing required AddOnDeploymentConfig reference in addon configuration")
-	errMultipleAODCRef = errors.New("addonmultiple AddOnDeploymentConfig references found - only one is supported")
 )
 
 type HelmChartValues struct {
@@ -37,7 +28,7 @@ type HelmChartValues struct {
 	Logging      *lmanifests.LoggingValues       `json:"logging,omitempty"`
 	Tracing      *tmanifests.TracingValues       `json:"tracing,omitempty"`
 	COO          *cmanifests.COOValues           `json:"coo,omitempty"`
-	RightSizing  *rsmanifests.RightSizingValues  `json:"rightSizing,omitempty"`
+	RightSizing  *rshandlers.RightSizingValues  `json:"rightSizing,omitempty"`
 }
 
 func GetValuesFunc(ctx context.Context, k8s client.Client, logger logr.Logger) addonfactory.GetValuesFunc {
@@ -48,7 +39,7 @@ func GetValuesFunc(ctx context.Context, k8s client.Client, logger logr.Logger) a
 		logger = logger.WithValues("cluster", cluster.Name)
 		logger.V(2).Info("reconciliation triggered")
 
-		aodc, err := getAddOnDeploymentConfig(ctx, k8s, mcAddon)
+		aodc, err := common.GetAddOnDeploymentConfig(ctx, k8s, mcAddon)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get AddOnDeploymentConfig: %w", err)
 		}
@@ -66,7 +57,21 @@ func GetValuesFunc(ctx context.Context, k8s client.Client, logger logr.Logger) a
 			Enabled: true,
 		}
 
-		userValues.Metrics, err = getMonitoringValues(ctx, k8s, logger, cluster, mcAddon, opts)
+		// Build right-sizing options first (needed for ScrapeConfig merging into metrics)
+		var rsOpts *rshandlers.Options
+		rsOptsBuilder := rshandlers.OptionsBuilder{
+			Client: k8s,
+			Logger: logger,
+		}
+		rsOptsBuilt, err := rsOptsBuilder.Build(ctx, cluster, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build right-sizing options: %w", err)
+		}
+		if rsOptsBuilt.NamespaceRightSizing.Enabled || rsOptsBuilt.VirtualizationRightSizing.Enabled {
+			rsOpts = &rsOptsBuilt
+		}
+
+		userValues.Metrics, err = getMonitoringValues(ctx, k8s, logger, cluster, mcAddon, opts, rsOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get monitoring values: %w", err)
 		}
@@ -86,7 +91,8 @@ func GetValuesFunc(ctx context.Context, k8s client.Client, logger logr.Logger) a
 			return nil, err
 		}
 
-		userValues.RightSizing, err = getRightSizingValues(ctx, k8s, logger, cluster, opts)
+		// Use already-built right-sizing options for values
+		userValues.RightSizing, err = getRightSizingValuesFromOpts(rsOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get right-sizing values: %w", err)
 		}
@@ -95,7 +101,7 @@ func GetValuesFunc(ctx context.Context, k8s client.Client, logger logr.Logger) a
 	}
 }
 
-func getMonitoringValues(ctx context.Context, k8s client.Client, logger logr.Logger, cluster *clusterv1.ManagedCluster, mcAddon *addonapiv1alpha1.ManagedClusterAddOn, opts addon.Options) (*mmanifests.MetricsValues, error) {
+func getMonitoringValues(ctx context.Context, k8s client.Client, logger logr.Logger, cluster *clusterv1.ManagedCluster, mcAddon *addonapiv1alpha1.ManagedClusterAddOn, opts addon.Options, rsOpts *rshandlers.Options) (*mmanifests.MetricsValues, error) {
 	if !opts.Platform.Metrics.CollectionEnabled && !opts.UserWorkloads.Metrics.CollectionEnabled {
 		logger.V(2).Info("both platform and userWorkloads metrics are disabled, ignoring cluster")
 		return nil, nil
@@ -108,6 +114,20 @@ func getMonitoringValues(ctx context.Context, k8s client.Client, logger logr.Log
 	metricsOpts, err := optsBuilder.Build(ctx, mcAddon, cluster, opts)
 	if err != nil {
 		return nil, err
+	}
+
+	// Merge right-sizing ScrapeConfigs into platform ScrapeConfigs
+	if rsOpts != nil {
+		if len(rsOpts.NamespaceRightSizing.ScrapeConfigs) > 0 {
+			metricsOpts.Platform.ScrapeConfigs = append(metricsOpts.Platform.ScrapeConfigs, rsOpts.NamespaceRightSizing.ScrapeConfigs...)
+			logger.V(2).Info("Merged namespace right-sizing ScrapeConfigs into platform",
+				"count", len(rsOpts.NamespaceRightSizing.ScrapeConfigs))
+		}
+		if len(rsOpts.VirtualizationRightSizing.ScrapeConfigs) > 0 {
+			metricsOpts.Platform.ScrapeConfigs = append(metricsOpts.Platform.ScrapeConfigs, rsOpts.VirtualizationRightSizing.ScrapeConfigs...)
+			logger.V(2).Info("Merged virtualization right-sizing ScrapeConfigs into platform",
+				"count", len(rsOpts.VirtualizationRightSizing.ScrapeConfigs))
+		}
 	}
 
 	return mmanifests.BuildValues(metricsOpts)
@@ -165,43 +185,12 @@ func getCOOValues(ctx context.Context, k8s client.Client, logger logr.Logger, cl
 	return cmanifests.BuildValues(opts, installCOO, common.IsHubCluster(cluster)), nil
 }
 
-func getAddOnDeploymentConfig(ctx context.Context, k8s client.Client, mcAddon *addonapiv1alpha1.ManagedClusterAddOn) (*addonapiv1alpha1.AddOnDeploymentConfig, error) {
-	aodc := &addonapiv1alpha1.AddOnDeploymentConfig{}
-	keys := common.GetObjectKeys(mcAddon.Status.ConfigReferences, addonutils.AddOnDeploymentConfigGVR.Group, addoncfg.AddonDeploymentConfigResource)
-	switch {
-	case len(keys) == 0:
-		return aodc, errMissingAODCRef
-	case len(keys) > 1:
-		return aodc, errMultipleAODCRef
-	}
-	if err := k8s.Get(ctx, keys[0], aodc, &client.GetOptions{}); err != nil {
-		// TODO(JoaoBraveCoding) Add proper error handling
-		return aodc, err
-	}
-	return aodc, nil
-}
-
-func getRightSizingValues(ctx context.Context, k8s client.Client, logger logr.Logger, cluster *clusterv1.ManagedCluster, opts addon.Options) (*rsmanifests.RightSizingValues, error) {
-	// Skip if neither namespace nor virtualization right-sizing is enabled
-	if !opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled && !opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled {
+// getRightSizingValuesFromOpts converts already-built right-sizing options to helm values.
+// This is used to avoid rebuilding the options twice (once for ScrapeConfig merging, once for values).
+func getRightSizingValuesFromOpts(rsOpts *rshandlers.Options) (*rshandlers.RightSizingValues, error) {
+	if rsOpts == nil {
 		return nil, nil
 	}
 
-	// Right-sizing only works on OpenShift clusters
-	if !common.IsOpenShiftVendor(cluster) {
-		logger.V(2).Info("Skipping right-sizing for non-OpenShift cluster", "cluster", cluster.Name)
-		return nil, nil
-	}
-
-	optsBuilder := rshandlers.OptionsBuilder{
-		Client: k8s,
-		Logger: logger,
-	}
-
-	rsOpts, err := optsBuilder.Build(ctx, cluster, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return rsmanifests.BuildValues(rsOpts)
+	return rshandlers.BuildValues(*rsOpts)
 }

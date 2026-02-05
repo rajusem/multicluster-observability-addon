@@ -16,13 +16,14 @@ import (
 	cooprometheusv1 "github.com/rhobs/obo-prometheus-operator/pkg/apis/monitoring/v1"
 	cooprometheusv1alpha1 "github.com/rhobs/obo-prometheus-operator/pkg/apis/monitoring/v1alpha1"
 	clusterinfov1beta1 "github.com/stolostron/cluster-lifecycle-api/clusterinfo/v1beta1"
+	clusterlifecycleconstants "github.com/stolostron/cluster-lifecycle-api/constants"
 	"github.com/stolostron/multicluster-observability-addon/internal/addon"
 	"github.com/stolostron/multicluster-observability-addon/internal/addon/common"
 	addoncfg "github.com/stolostron/multicluster-observability-addon/internal/addon/config"
 	"github.com/stolostron/multicluster-observability-addon/internal/metrics/config"
 	"github.com/stolostron/multicluster-observability-addon/internal/metrics/handlers"
 	"github.com/stolostron/multicluster-observability-addon/internal/metrics/manifests"
-	"github.com/stolostron/multicluster-observability-addon/internal/metrics/resource"
+	internalres "github.com/stolostron/multicluster-observability-addon/internal/metrics/resource"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/text/cases"
@@ -31,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	meta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -42,11 +44,13 @@ import (
 	"open-cluster-management.io/addon-framework/pkg/addonfactory"
 	"open-cluster-management.io/addon-framework/pkg/addonmanager/addontesting"
 	"open-cluster-management.io/addon-framework/pkg/agent"
+	"open-cluster-management.io/addon-framework/pkg/utils"
 	addonapiv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	fakeaddon "open-cluster-management.io/api/client/addon/clientset/versioned/fake"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	workv1 "open-cluster-management.io/api/work/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
@@ -63,7 +67,9 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 		UserMetrics      bool
 		COOIsInstalled   bool
 		IsOCP            bool
+		IsHub            bool
 		InstallNamespace string
+		ResourceReqs     bool
 		Expects          func(*testing.T, []client.Object)
 	}{
 		"no metrics": {
@@ -102,7 +108,7 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 				assert.Len(t, cooOperator, 1)
 				// ensure that the number of objects is correct
 				// 4 (prom operator) + 5 (agent) + 2 secrets (mTLS to hub) + 1 cm (prom ca) + 2 rule + 2 scrape config + 1 configmap = 17
-				expectedCount := 34
+				expectedCount := 35
 				if len(objects) != expectedCount {
 					t.Fatalf("expected %d objects, but got %d:\n%s", expectedCount, len(objects), formatObjects(objects))
 				}
@@ -128,6 +134,25 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 				}
 			},
 		},
+		"platform metrics, no coo, is hub": {
+			PlatformMetrics: true,
+			UserMetrics:     false,
+			COOIsInstalled:  false,
+			IsOCP:           true,
+			IsHub:           true,
+			Expects: func(t *testing.T, objects []client.Object) {
+				crds := common.FilterResourcesByLabelSelector[*apiextensionsv1.CustomResourceDefinition](objects, nil)
+				expectedCount := 4 // Some CRDs are not installed by MCOA on the hub but by MCO
+				if len(crds) != expectedCount {
+					t.Fatalf("expected %d objects, but got %d", expectedCount, len(crds))
+				}
+				// ensure that the number of objects is correct
+				expectedCount = 33
+				if len(objects) != expectedCount {
+					t.Fatalf("expected %d objects, but got %d:\n%s", expectedCount, len(objects), formatObjects(objects))
+				}
+			},
+		},
 		"platform metrics, coo is installed": {
 			PlatformMetrics: true,
 			UserMetrics:     false,
@@ -140,7 +165,7 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 				assert.Equal(t, "observability-operator", agent[0].Labels["app.kubernetes.io/managed-by"])
 				assert.Empty(t, agent[0].Annotations["operator.prometheus.io/controller-id"])
 				// ensure that the number of objects is correct
-				expectedCount := 26
+				expectedCount := 22
 				if len(objects) != expectedCount {
 					t.Fatalf("expected %d objects, but got %d:\n%s", expectedCount, len(objects), formatObjects(objects))
 				}
@@ -167,7 +192,7 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 				recordingRules := common.FilterResourcesByLabelSelector[*prometheusv1.PrometheusRule](objects, config.UserWorkloadPrometheusMatchLabels)
 				assert.Len(t, recordingRules, 2)
 				assert.Equal(t, "openshift-user-workload-monitoring/prometheus-operator", recordingRules[0].Annotations["operator.prometheus.io/controller-id"])
-				expectedCount := 34
+				expectedCount := 35
 				if len(objects) != expectedCount {
 					t.Fatalf("expected %d objects, but got %d:\n%s", expectedCount, len(objects), formatObjects(objects))
 				}
@@ -187,18 +212,10 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 				assert.Empty(t, agent[0].Annotations["operator.prometheus.io/controller-id"])
 
 				crds := common.FilterResourcesByLabelSelector[*apiextensionsv1.CustomResourceDefinition](objects, nil)
-				checkedCRDs := 0
-				for _, crd := range crds {
-					if crd.Spec.Group != "monitoring.rhobs" {
-						continue
-					}
-					checkedCRDs++
-					assert.Contains(t, crd.Annotations, "addon.open-cluster-management.io/deletion-orphan")
-				}
-				assert.NotZero(t, checkedCRDs)
+				assert.Len(t, crds, 1) // Only the monitoringstacks one
 
 				// ensure that the number of objects is correct
-				expectedCount := 26
+				expectedCount := 22
 				if len(objects) != expectedCount {
 					t.Fatalf("expected %d objects, but got %d:\n%s", expectedCount, len(objects), formatObjects(objects))
 				}
@@ -266,7 +283,7 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 				assert.Contains(t, proms[0].Spec.Secrets, config.GetAlertmanagerAccessorSecretName(trimmedID))
 
 				// ensure that the number of objects is correct
-				expectedCount := 70
+				expectedCount := 71
 				if len(objects) != expectedCount {
 					t.Fatalf("expected %d objects, but got %d:\n%s", expectedCount, len(objects), formatObjects(objects))
 				}
@@ -281,13 +298,65 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 			Expects: func(t *testing.T, objects []client.Object) {
 				// ensure the namespace is created
 				ns := common.FilterResourcesByLabelSelector[*corev1.Namespace](objects, nil)
-				assert.Len(t, ns, 1)
+				require.Len(t, ns, 1)
 				assert.Equal(t, "custom", ns[0].Name)
 				// ensure that the number of objects is correct
-				expectedCount := 71
+				expectedCount := 72
 				if len(objects) != expectedCount {
 					t.Fatalf("expected %d objects, but got %d:\n%s", expectedCount, len(objects), formatObjects(objects))
 				}
+			},
+		},
+		"resource requests and limits": {
+			PlatformMetrics: true,
+			UserMetrics:     false,
+			COOIsInstalled:  false,
+			IsOCP:           true,
+			ResourceReqs:    true,
+			Expects: func(t *testing.T, objects []client.Object) {
+				// Verify prometheus agent has the correct resource requirements
+				agent := common.FilterResourcesByLabelSelector[*cooprometheusv1alpha1.PrometheusAgent](objects, config.PlatformPrometheusMatchLabels)
+				assert.Len(t, agent, 1)
+
+				expectedPrometheusResources := corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("200m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("128Mi"),
+					},
+				}
+				assert.Equal(t, expectedPrometheusResources, agent[0].Spec.Resources)
+
+				// Verify prometheus-operator deployment has the correct resource requirements
+				operatorMatchLabels := map[string]string{
+					"app.kubernetes.io/name": "prometheus-operator",
+				}
+				deployments := common.FilterResourcesByLabelSelector[*appsv1.Deployment](objects, operatorMatchLabels)
+				assert.Len(t, deployments, 1, "Should find exactly one prometheus-operator deployment")
+
+				expectedOperatorResources := corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("150m"),
+						corev1.ResourceMemory: resource.MustParse("192Mi"),
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("75m"),
+						corev1.ResourceMemory: resource.MustParse("96Mi"),
+					},
+				}
+				// Find the prometheus-operator container in the deployment
+				var operatorContainer *corev1.Container
+				for i := range deployments[0].Spec.Template.Spec.Containers {
+					if deployments[0].Spec.Template.Spec.Containers[i].Name == "prometheus-operator" {
+						operatorContainer = &deployments[0].Spec.Template.Spec.Containers[i]
+						break
+					}
+				}
+				assert.NotNil(t, operatorContainer, "prometheus-operator container not found")
+				assert.Equal(t, expectedOperatorResources, operatorContainer.Resources)
 			},
 		},
 	}
@@ -301,12 +370,10 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 	assert.NoError(t, addonapiv1alpha1.AddToScheme(scheme))
 	assert.NoError(t, workv1.AddToScheme(scheme))
 	assert.NoError(t, operatorv1.AddToScheme(scheme))
+	assert.NoError(t, hyperv1.AddToScheme(scheme))
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if tc.InstallNamespace == "" {
-				tc.InstallNamespace = addonfactory.AddonDefaultInstallNamespace
-			}
 			// Add platform resources
 			defaultAgentResources := []client.Object{}
 			platformScrapeConfig := &cooprometheusv1alpha1.ScrapeConfig{
@@ -420,11 +487,56 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 			if tc.IsOCP {
 				managedCluster.Labels[clusterinfov1beta1.LabelKubeVendor] = string(clusterinfov1beta1.KubeVendorOpenShift)
 			}
+			if tc.IsHub {
+				managedCluster.Labels[clusterlifecycleconstants.SelfManagedClusterLabelKey] = "true"
+			}
 			clientObjects = append(clientObjects, managedCluster)
 
 			// Setup the ClusterManagementAddon (needed to generate default resources)
 			cmao := newCMOA()
 			clientObjects = append(clientObjects, cmao)
+
+			// Add addonDeploymentConfig
+			aodc := newAddonDeploymentConfig()
+			if tc.InstallNamespace != "" {
+				aodc.Spec.AgentInstallNamespace = tc.InstallNamespace
+			}
+
+			if tc.ResourceReqs {
+				prometheusContainerID := "statefulsets:" + config.PlatformMetricsCollectorApp + ":prometheus"
+				operatorContainerID := "deployments:prometheus-operator:prometheus-operator"
+				aodc.Spec.ResourceRequirements = []addonapiv1alpha1.ContainerResourceRequirements{
+					{
+						ContainerID: prometheusContainerID,
+						Resources: corev1.ResourceRequirements{
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("200m"),
+								corev1.ResourceMemory: resource.MustParse("256Mi"),
+							},
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("128Mi"),
+							},
+						},
+					},
+					{
+						ContainerID: operatorContainerID,
+						Resources: corev1.ResourceRequirements{
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("150m"),
+								corev1.ResourceMemory: resource.MustParse("192Mi"),
+							},
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("75m"),
+								corev1.ResourceMemory: resource.MustParse("96Mi"),
+							},
+						},
+					},
+				}
+			}
+
+			clientObjects = append(clientObjects, aodc)
+			configReferences = append(configReferences, newConfigReference(aodc))
 
 			// Images overrides configMap
 			imagesCM := &corev1.ConfigMap{
@@ -446,24 +558,21 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 
 			// Setup the fake k8s client
 			client := fakeclient.NewClientBuilder().
-				WithInterceptorFuncs(interceptor.Funcs{
-					Patch: func(ctx context.Context, clientww client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-						return clientww.Patch(ctx, obj, client.Merge, opts...)
-					},
-				}).
+				WithInterceptorFuncs(ensureGVKIsSet(scheme)).
 				WithScheme(scheme).
 				WithObjects(clientObjects...).
 				Build()
 
 			// Setup the fake addon client
-			addonClient := fakeaddon.NewSimpleClientset(newAddonDeploymentConfig())
+			addonClient := fakeaddon.NewSimpleClientset(aodc)
 			addonConfigValuesFn := addonfactory.GetAddOnDeploymentConfigValues(
 				addonfactory.NewAddOnDeploymentConfigGetter(addonClient),
 				addonfactory.ToAddOnCustomizedVariableValues,
+				addonfactory.ToAddOnResourceRequirementsValues,
 			)
 
 			// generate default agent resources
-			defaultStack := resource.DefaultStackResources{
+			defaultStack := internalres.DefaultStackResources{
 				Client:       client,
 				CMAO:         cmao,
 				AddonOptions: newAddonOptions(true, true),
@@ -486,18 +595,28 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			configReferences = append(configReferences, newConfigReference(&promAgents.Items[0]), newConfigReference(&promAgents.Items[1]))
+			// Get updated agents for config references (they have proper GVK after update)
+			updatedPromAgents := cooprometheusv1alpha1.PrometheusAgentList{}
+			err = client.List(context.Background(), &updatedPromAgents)
+			require.NoError(t, err)
+
+			configReferences = append(configReferences, newConfigReference(&updatedPromAgents.Items[0]), newConfigReference(&updatedPromAgents.Items[1]))
 
 			// Register the addon for the managed cluster
 			managedClusterAddOn := addontesting.NewAddon("test", "cluster-1")
-			managedClusterAddOn.Spec.InstallNamespace = tc.InstallNamespace
 			managedClusterAddOn.Status.ConfigReferences = []addonapiv1alpha1.ConfigReference{}
 			managedClusterAddOn.Status.ConfigReferences = append(managedClusterAddOn.Status.ConfigReferences, configReferences...)
 
 			// Wire everything together to a fake addon instance
 			agentAddon, err := addonfactory.NewAgentAddonFactory(addoncfg.Name, addon.FS, addoncfg.MetricsChartDir).
-				WithGetValuesFuncs(addonConfigValuesFn, fakeGetValues(client, tc.PlatformMetrics, tc.UserMetrics)).
+				WithGetValuesFuncs(addonConfigValuesFn, fakeGetValues(client, tc.PlatformMetrics, tc.UserMetrics, tc.InstallNamespace, aodc.Spec.ResourceRequirements)).
 				WithAgentRegistrationOption(&agent.RegistrationOption{}).
+				WithAgentInstallNamespace(
+					// Set agent install namespace from addon deployment config if it exists
+					utils.AgentInstallNamespaceFromDeploymentConfigFunc(
+						utils.NewAddOnDeploymentConfigGetter(addonClient),
+					),
+				).
 				WithScheme(scheme).
 				BuildHelmAgentAddon()
 			if err != nil {
@@ -523,7 +642,11 @@ func TestHelmBuild_Metrics_All(t *testing.T) {
 					if obj.GetObjectKind().GroupVersionKind().Kind == "PrometheusRule" && accessor.GetName() == "uwl-rules-additional" {
 						assert.Equal(t, "target-namespace", accessor.GetNamespace(), fmt.Sprintf("Object: %s/%s", obj.GetObjectKind().GroupVersionKind(), accessor.GetName()))
 					} else {
-						assert.Equal(t, tc.InstallNamespace, accessor.GetNamespace(), fmt.Sprintf("Object: %s/%s", obj.GetObjectKind().GroupVersionKind(), accessor.GetName()))
+						installNamespace := addonfactory.AddonDefaultInstallNamespace
+						if tc.InstallNamespace != "" {
+							installNamespace = tc.InstallNamespace
+						}
+						assert.Equal(t, installNamespace, accessor.GetNamespace(), fmt.Sprintf("Object: %s/%s", obj.GetObjectKind().GroupVersionKind(), accessor.GetName()))
 					}
 				}
 			}
@@ -543,7 +666,7 @@ func TestHelmBuild_Metrics_HCP(t *testing.T) {
 	assert.NoError(t, workv1.AddToScheme(scheme))
 	assert.NoError(t, operatorv1.AddToScheme(scheme))
 
-	installNamespace := "open-cluster-management-addon-observability"
+	// installNamespace := "open-cluster-management-addon-observability"
 	hubNamespace := "open-cluster-management-observability"
 
 	// Add user workload resources
@@ -740,11 +863,7 @@ func TestHelmBuild_Metrics_HCP(t *testing.T) {
 
 	// Setup the fake k8s client
 	client := fakeclient.NewClientBuilder().
-		WithInterceptorFuncs(interceptor.Funcs{
-			Patch: func(ctx context.Context, clientww client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-				return clientww.Patch(ctx, obj, client.Merge, opts...)
-			},
-		}).
+		WithInterceptorFuncs(ensureGVKIsSet(scheme)).
 		WithScheme(scheme).
 		WithObjects(clientObjects...).
 		Build()
@@ -757,7 +876,7 @@ func TestHelmBuild_Metrics_HCP(t *testing.T) {
 	)
 
 	// generate default agent resources
-	defaultStack := resource.DefaultStackResources{
+	defaultStack := internalres.DefaultStackResources{
 		Client:       client,
 		CMAO:         cmao,
 		AddonOptions: newAddonOptions(true, true),
@@ -776,13 +895,12 @@ func TestHelmBuild_Metrics_HCP(t *testing.T) {
 
 	// Register the addon for the managed cluster
 	managedClusterAddOn := addontesting.NewAddon("test", "cluster-1")
-	managedClusterAddOn.Spec.InstallNamespace = installNamespace
 	managedClusterAddOn.Status.ConfigReferences = []addonapiv1alpha1.ConfigReference{}
 	managedClusterAddOn.Status.ConfigReferences = append(managedClusterAddOn.Status.ConfigReferences, configReferences...)
 
 	// Wire everything together to a fake addon instance
 	agentAddon, err := addonfactory.NewAgentAddonFactory(addoncfg.Name, addon.FS, addoncfg.MetricsChartDir).
-		WithGetValuesFuncs(addonConfigValuesFn, fakeGetValues(client, false, true)).
+		WithGetValuesFuncs(addonConfigValuesFn, fakeGetValues(client, false, true, "", nil)).
 		WithAgentRegistrationOption(&agent.RegistrationOption{}).
 		WithScheme(scheme).
 		BuildHelmAgentAddon()
@@ -810,6 +928,10 @@ func TestHelmBuild_Metrics_HCP(t *testing.T) {
 
 func newAddonDeploymentConfig() *addonapiv1alpha1.AddOnDeploymentConfig {
 	return &addonapiv1alpha1.AddOnDeploymentConfig{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "AddOnDeploymentConfig",
+			APIVersion: addonapiv1alpha1.GroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "multicluster-observability-addon",
 			Namespace: "open-cluster-management-observability",
@@ -838,7 +960,7 @@ func newSecret(name, ns string) *corev1.Secret {
 	}
 }
 
-func fakeGetValues(k8s client.Client, platformMetrics, userWorkloadMetrics bool) addonfactory.GetValuesFunc {
+func fakeGetValues(k8s client.Client, platformMetrics, userWorkloadMetrics bool, installNs string, resReqs []addonapiv1alpha1.ContainerResourceRequirements) addonfactory.GetValuesFunc {
 	return func(
 		cluster *clusterv1.ManagedCluster,
 		mcAddon *addonapiv1alpha1.ManagedClusterAddOn,
@@ -856,6 +978,14 @@ func fakeGetValues(k8s client.Client, platformMetrics, userWorkloadMetrics bool)
 			UserWorkloads: addon.UserWorkloadOptions{
 				Metrics: addon.MetricsOptions{CollectionEnabled: userWorkloadMetrics},
 			},
+		}
+
+		if installNs != "" {
+			addonOpts.InstallNamespace = installNs
+		}
+
+		if resReqs != nil {
+			addonOpts.ResourceReqs = resReqs
 		}
 
 		// opts, err := optionsBuilder.Build(context.Background(), mcAddon, cluster, addon.MetricsOptions{CollectionEnabled: platformMetrics, HubEndpoint: hubEp}, addon.MetricsOptions{CollectionEnabled: userWorkloadMetrics})
@@ -886,6 +1016,7 @@ func newConfigReference(obj client.Object) addonapiv1alpha1.ConfigReference {
 				Namespace: obj.GetNamespace(),
 				Name:      obj.GetName(),
 			},
+			SpecHash: "dummy",
 		},
 	}
 }
@@ -1008,6 +1139,17 @@ func newManifestWork(name string, isOLMSubscrided bool) *workv1.ManifestWork {
 										String: ptr.To("12:00"),
 									},
 								},
+							},
+						},
+					},
+					{
+						ResourceMeta: workv1.ManifestResourceMeta{
+							Group:    apiextensionsv1.GroupName,
+							Resource: "customresourcedefinitions",
+							Name:     config.MonitoringStackCRDName,
+						},
+						StatusFeedbacks: workv1.StatusFeedbackResult{
+							Values: []workv1.FeedbackValue{
 								{
 									Name: addoncfg.IsOLMManagedFeedbackName,
 									Value: workv1.FieldValue{
@@ -1020,6 +1162,47 @@ func newManifestWork(name string, isOLMSubscrided bool) *workv1.ManifestWork {
 					},
 				},
 			},
+		},
+	}
+}
+
+func ensureGVKIsSet(scheme *runtime.Scheme) interceptor.Funcs {
+	return interceptor.Funcs{
+		Get: func(ctx context.Context, clientww client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			err := clientww.Get(ctx, key, obj, opts...)
+			if err != nil {
+				return err
+			}
+			gvk, err := apiutil.GVKForObject(obj, scheme)
+			if err == nil {
+				obj.GetObjectKind().SetGroupVersionKind(gvk)
+			}
+			return nil
+		},
+		Patch: func(ctx context.Context, clientww client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			gvk, _ := apiutil.GVKForObject(obj, scheme)
+			if !gvk.Empty() {
+				obj.GetObjectKind().SetGroupVersionKind(gvk)
+			}
+			err := clientww.Patch(ctx, obj, patch, opts...)
+			if err == nil && !gvk.Empty() {
+				obj.GetObjectKind().SetGroupVersionKind(gvk)
+			}
+			return err
+		},
+		List: func(ctx context.Context, clientww client.WithWatch, obj client.ObjectList, opts ...client.ListOption) error {
+			err := clientww.List(ctx, obj, opts...)
+			if err != nil {
+				return err
+			}
+			return meta.EachListItem(obj, func(object runtime.Object) error {
+				gvk, err := apiutil.GVKForObject(object, scheme)
+				if err != nil {
+					return nil
+				}
+				object.GetObjectKind().SetGroupVersionKind(gvk)
+				return nil
+			})
 		},
 	}
 }
