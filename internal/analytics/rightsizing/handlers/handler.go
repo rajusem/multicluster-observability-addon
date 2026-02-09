@@ -16,7 +16,9 @@ import (
 	"github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing"
 	rsnamespace "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/namespace"
 	rsvirtualization "github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/virtualization"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -44,6 +46,11 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 
 	// Build namespace right-sizing options
 	if opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled {
+		// Ensure ConfigMap exists on hub (MCOA owns all RS resources)
+		if err := o.ensureNamespaceConfigMap(ctx); err != nil {
+			o.Logger.Error(err, "Failed to ensure namespace ConfigMap exists, continuing with defaults")
+		}
+
 		nsOpts, err := o.buildNamespaceOptions(ctx)
 		if err != nil {
 			return ret, fmt.Errorf("failed to build namespace right-sizing options: %w", err)
@@ -53,6 +60,11 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 
 	// Build virtualization right-sizing options
 	if opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled {
+		// Ensure ConfigMap exists on hub (MCOA owns all RS resources)
+		if err := o.ensureVirtualizationConfigMap(ctx); err != nil {
+			o.Logger.Error(err, "Failed to ensure virtualization ConfigMap exists, continuing with defaults")
+		}
+
 		virtOpts, err := o.buildVirtualizationOptions(ctx)
 		if err != nil {
 			return ret, fmt.Errorf("failed to build virtualization right-sizing options: %w", err)
@@ -128,4 +140,61 @@ func (o *OptionsBuilder) getConfigData(ctx context.Context, configMapName string
 	}
 
 	return rightsizing.ParseConfigMapData(cm.Data)
+}
+
+// ensureNamespaceConfigMap ensures the namespace right-sizing ConfigMap exists on the hub.
+// MCOA owns all right-sizing resources including ConfigMaps for cleaner architecture.
+func (o *OptionsBuilder) ensureNamespaceConfigMap(ctx context.Context) error {
+	_, err := common.GetConfigMap(ctx, o.Client, addoncfg.InstallNamespace, rightsizing.NamespaceConfigMapName)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			o.Logger.Info("Creating namespace right-sizing ConfigMap with defaults",
+				"name", rightsizing.NamespaceConfigMapName,
+				"namespace", addoncfg.InstallNamespace)
+			return o.createDefaultConfigMap(ctx, rightsizing.NamespaceConfigMapName, rightsizing.GetDefaultNamespaceConfigData())
+		}
+		return err
+	}
+	// ConfigMap already exists
+	return nil
+}
+
+// ensureVirtualizationConfigMap ensures the virtualization right-sizing ConfigMap exists on the hub.
+// MCOA owns all right-sizing resources including ConfigMaps for cleaner architecture.
+func (o *OptionsBuilder) ensureVirtualizationConfigMap(ctx context.Context) error {
+	_, err := common.GetConfigMap(ctx, o.Client, addoncfg.InstallNamespace, rightsizing.VirtualizationConfigMapName)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			o.Logger.Info("Creating virtualization right-sizing ConfigMap with defaults",
+				"name", rightsizing.VirtualizationConfigMapName,
+				"namespace", addoncfg.InstallNamespace)
+			return o.createDefaultConfigMap(ctx, rightsizing.VirtualizationConfigMapName, rightsizing.GetDefaultVirtualizationConfigData())
+		}
+		return err
+	}
+	// ConfigMap already exists
+	return nil
+}
+
+// createDefaultConfigMap creates a ConfigMap with the provided data.
+// The ConfigMap is labeled to indicate it's managed by MCOA for right-sizing.
+func (o *OptionsBuilder) createDefaultConfigMap(ctx context.Context, name string, data map[string]string) error {
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: addoncfg.InstallNamespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/component":  "right-sizing",
+				"app.kubernetes.io/managed-by": "multicluster-observability-addon",
+			},
+		},
+		Data: data,
+	}
+
+	if err := o.Client.Create(ctx, cm); err != nil {
+		return fmt.Errorf("failed to create ConfigMap %s: %w", name, err)
+	}
+
+	o.Logger.Info("Created right-sizing ConfigMap", "name", name, "namespace", addoncfg.InstallNamespace)
+	return nil
 }
