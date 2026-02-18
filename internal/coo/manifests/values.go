@@ -11,6 +11,7 @@ import (
 	imanifests "github.com/stolostron/multicluster-observability-addon/internal/analytics/incident-detection/manifests"
 	"github.com/stolostron/multicluster-observability-addon/internal/perses/dashboards/acm"
 	incident_management "github.com/stolostron/multicluster-observability-addon/internal/perses/dashboards/incident-management"
+	rsperses "github.com/stolostron/multicluster-observability-addon/internal/perses/dashboards/rightsizing"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -48,6 +49,7 @@ type UIValues struct {
 func BuildValues(opts addon.Options, installOfCOOOnTheHubIsNeeded bool, isHubCluster bool) *COOValues {
 	var dashboards []DashboardValue
 	var incidentDetectionEnabled bool
+	var rightSizingEnabled bool
 	metricsUI := enableUI(opts.Platform.Metrics, isHubCluster)
 	if metricsUI != nil {
 		if metricsUI.Enabled {
@@ -66,8 +68,20 @@ func BuildValues(opts addon.Options, installOfCOOOnTheHubIsNeeded bool, isHubClu
 		}
 	}
 
+	// Add right-sizing dashboards (hub only)
+	if isHubCluster {
+		if opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled {
+			rightSizingEnabled = true
+			dashboards = append(dashboards, buildNamespaceRSDashboards()...)
+		}
+		if opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled {
+			rightSizingEnabled = true
+			dashboards = append(dashboards, buildVMRSDashboards()...)
+		}
+	}
+
 	var installCOO bool
-	if (metricsUI != nil && metricsUI.Enabled) || incidentDetectionEnabled {
+	if (metricsUI != nil && metricsUI.Enabled) || incidentDetectionEnabled || rightSizingEnabled {
 		if isHubCluster {
 			installCOO = installOfCOOOnTheHubIsNeeded
 		} else {
@@ -182,4 +196,20 @@ func buildK8sDashboards() []DashboardValue {
 		}
 	}
 	return dashboards
+}
+
+func buildNamespaceRSDashboards() []DashboardValue {
+	builders := []DashboardBuilder{
+		{rsperses.BuildNamespaceRightSizing, "NamespaceRightSizing"},
+	}
+
+	return buildDashboards(builders, dsThanos)
+}
+
+func buildVMRSDashboards() []DashboardValue {
+	builders := []DashboardBuilder{
+		{rsperses.BuildVirtualizationRightSizing, "VirtualizationRightSizing"},
+	}
+
+	return buildDashboards(builders, dsThanos)
 }

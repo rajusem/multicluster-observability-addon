@@ -2,12 +2,10 @@
 // Copyright Contributors to the Open Cluster Management project
 // Licensed under the Apache License 2.0
 
-package manifests
+package handlers
 
 import (
 	"encoding/json"
-
-	"github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing/handlers"
 )
 
 // RightSizingValues contains the helm values for right-sizing
@@ -18,7 +16,7 @@ type RightSizingValues struct {
 
 // ComponentValues contains the helm values for a single right-sizing component
 type ComponentValues struct {
-	Enabled bool              `json:"enabled"`
+	Enabled bool                `json:"enabled"`
 	Rules   []PrometheusRuleValue `json:"rules,omitempty"`
 }
 
@@ -29,7 +27,7 @@ type PrometheusRuleValue struct {
 }
 
 // BuildValues builds the helm values from the right-sizing options
-func BuildValues(opts handlers.Options) (*RightSizingValues, error) {
+func BuildValues(opts Options) (*RightSizingValues, error) {
 	if !opts.NamespaceRightSizing.Enabled && !opts.VirtualizationRightSizing.Enabled {
 		return nil, nil
 	}

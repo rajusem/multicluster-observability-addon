@@ -10,7 +10,6 @@ import (
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 // GeneratePrometheusRule builds PrometheusRule based on configdata
@@ -25,32 +24,8 @@ func GeneratePrometheusRule(configData rightsizing.RSConfigMapData) (monitoringv
 		return monitoringv1.PrometheusRule{}, err
 	}
 
-	// Define durations
-	duration5m := monitoringv1.Duration("5m")
-	duration1d := monitoringv1.Duration("15m")
-
-	// Helper for rules
-	rule := func(record, metricExpr string) monitoringv1.Rule {
-		expr := metricExpr
-		if labelJoin != "" {
-			expr = fmt.Sprintf("%s %s", metricExpr, labelJoin)
-		}
-		return monitoringv1.Rule{
-			Record: record,
-			Expr:   intstr.FromString(expr),
-		}
-	}
-
-	ruleWithLabels := func(record, expr string) monitoringv1.Rule {
-		return monitoringv1.Rule{
-			Record: record,
-			Expr:   intstr.FromString(expr),
-			Labels: map[string]string{
-				"profile":     "Max OverAll",
-				"aggregation": "1d",
-			},
-		}
-	}
+	// Create rule builder with shared utilities
+	rb := rightsizing.NewRuleBuilder(labelJoin)
 
 	return monitoringv1.PrometheusRule{
 		ObjectMeta: metav1.ObjectMeta{
@@ -65,42 +40,39 @@ func GeneratePrometheusRule(configData rightsizing.RSConfigMapData) (monitoringv
 			Groups: []monitoringv1.RuleGroup{
 				{
 					Name:     "acm-right-sizing-namespace-5m.rule",
-					Interval: &duration5m,
-					Rules:    buildNamespaceRules5m(nsFilter, rule),
+					Interval: &rightsizing.Duration5m,
+					Rules:    buildNamespaceRules5m(nsFilter, rb),
 				},
 				{
 					Name:     "acm-right-sizing-namespace-1d.rules",
-					Interval: &duration1d,
-					Rules:    buildNamespaceRules1d(configData, ruleWithLabels),
+					Interval: &rightsizing.Duration1d,
+					Rules:    buildNamespaceRules1d(configData, rb),
 				},
 				{
 					Name:     "acm-right-sizing-cluster-5m.rule",
-					Interval: &duration5m,
-					Rules:    buildClusterRules5m(nsFilter, rule),
+					Interval: &rightsizing.Duration5m,
+					Rules:    buildClusterRules5m(nsFilter, rb),
 				},
 				{
 					Name:     "acm-right-sizing-cluster-1d.rule",
-					Interval: &duration1d,
-					Rules:    buildClusterRules1d(configData, ruleWithLabels),
+					Interval: &rightsizing.Duration1d,
+					Rules:    buildClusterRules1d(configData, rb),
 				},
 			},
 		},
 	}, nil
 }
 
-func buildNamespaceRules5m(
-	nsFilter string,
-	rule func(string, string) monitoringv1.Rule,
-) []monitoringv1.Rule {
+func buildNamespaceRules5m(nsFilter string, rb *rightsizing.RuleBuilder) []monitoringv1.Rule {
 	return []monitoringv1.Rule{
-		rule(
+		rb.Rule(
 			"acm_rs:namespace:cpu_request_hard:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(kube_resourcequota{resource=~"requests.cpu", type="hard", %s}) by (namespace)[5m:])`,
 				nsFilter,
 			),
 		),
-		rule(
+		rb.Rule(
 			"acm_rs:namespace:cpu_request:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(kube_pod_container_resource_requests{`+
@@ -108,7 +80,7 @@ func buildNamespaceRules5m(
 				nsFilter,
 			),
 		),
-		rule(
+		rb.Rule(
 			"acm_rs:namespace:cpu_usage:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(node_namespace_pod_container:`+
@@ -117,14 +89,14 @@ func buildNamespaceRules5m(
 				nsFilter,
 			),
 		),
-		rule(
+		rb.Rule(
 			"acm_rs:namespace:memory_request_hard:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(kube_resourcequota{resource=~"requests.memory", type="hard", %s}) by (namespace)[5m:])`,
 				nsFilter,
 			),
 		),
-		rule(
+		rb.Rule(
 			"acm_rs:namespace:memory_request:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(kube_pod_container_resource_requests{`+
@@ -132,7 +104,7 @@ func buildNamespaceRules5m(
 				nsFilter,
 			),
 		),
-		rule(
+		rb.Rule(
 			"acm_rs:namespace:memory_usage:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(container_memory_working_set_bytes{`+
@@ -143,51 +115,33 @@ func buildNamespaceRules5m(
 	}
 }
 
-func buildNamespaceRules1d(
-	configData rightsizing.RSConfigMapData,
-	ruleWithLabels func(string, string) monitoringv1.Rule,
-) []monitoringv1.Rule {
+func buildNamespaceRules1d(configData rightsizing.RSConfigMapData, rb *rightsizing.RuleBuilder) []monitoringv1.Rule {
 	rp := configData.PrometheusRuleConfig.RecommendationPercentage
 	if rp == 0 {
 		rp = rightsizing.DefaultRecommendationPercentage
 	}
 	return []monitoringv1.Rule{
-		ruleWithLabels("acm_rs:namespace:cpu_request_hard", `max_over_time(acm_rs:namespace:cpu_request_hard:5m[1d])`),
-		ruleWithLabels("acm_rs:namespace:cpu_request", `max_over_time(acm_rs:namespace:cpu_request:5m[1d])`),
-		ruleWithLabels("acm_rs:namespace:cpu_usage", `max_over_time(acm_rs:namespace:cpu_usage:5m[1d])`),
-		ruleWithLabels(
-			"acm_rs:namespace:cpu_recommendation",
-			fmt.Sprintf(
-				`max_over_time(acm_rs:namespace:cpu_usage:5m[1d]) * (%d/100)`,
-				rp,
-			),
-		),
-		ruleWithLabels("acm_rs:namespace:memory_request_hard", `max_over_time(acm_rs:namespace:memory_request_hard:5m[1d])`),
-		ruleWithLabels("acm_rs:namespace:memory_request", `max_over_time(acm_rs:namespace:memory_request:5m[1d])`),
-		ruleWithLabels("acm_rs:namespace:memory_usage", `max_over_time(acm_rs:namespace:memory_usage:5m[1d])`),
-		ruleWithLabels(
-			"acm_rs:namespace:memory_recommendation",
-			fmt.Sprintf(
-				`max_over_time(acm_rs:namespace:memory_usage:5m[1d]) * (%d/100)`,
-				rp,
-			),
-		),
+		rb.RuleWithLabels("acm_rs:namespace:cpu_request_hard", rightsizing.Build1dAggregationExpr("acm_rs:namespace:cpu_request_hard:5m")),
+		rb.RuleWithLabels("acm_rs:namespace:cpu_request", rightsizing.Build1dAggregationExpr("acm_rs:namespace:cpu_request:5m")),
+		rb.RuleWithLabels("acm_rs:namespace:cpu_usage", rightsizing.Build1dAggregationExpr("acm_rs:namespace:cpu_usage:5m")),
+		rb.RuleWithLabels("acm_rs:namespace:cpu_recommendation", rightsizing.BuildRecommendationExpr("acm_rs:namespace:cpu_usage:5m", rp)),
+		rb.RuleWithLabels("acm_rs:namespace:memory_request_hard", rightsizing.Build1dAggregationExpr("acm_rs:namespace:memory_request_hard:5m")),
+		rb.RuleWithLabels("acm_rs:namespace:memory_request", rightsizing.Build1dAggregationExpr("acm_rs:namespace:memory_request:5m")),
+		rb.RuleWithLabels("acm_rs:namespace:memory_usage", rightsizing.Build1dAggregationExpr("acm_rs:namespace:memory_usage:5m")),
+		rb.RuleWithLabels("acm_rs:namespace:memory_recommendation", rightsizing.BuildRecommendationExpr("acm_rs:namespace:memory_usage:5m", rp)),
 	}
 }
 
-func buildClusterRules5m(
-	nsFilter string,
-	rule func(string, string) monitoringv1.Rule,
-) []monitoringv1.Rule {
+func buildClusterRules5m(nsFilter string, rb *rightsizing.RuleBuilder) []monitoringv1.Rule {
 	return []monitoringv1.Rule{
-		rule(
+		rb.Rule(
 			"acm_rs:cluster:cpu_request_hard:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(kube_resourcequota{resource=~"requests.cpu", type="hard", %s}) by (cluster)[5m:])`,
 				nsFilter,
 			),
 		),
-		rule(
+		rb.Rule(
 			"acm_rs:cluster:cpu_request:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(kube_pod_container_resource_requests{`+
@@ -195,7 +149,7 @@ func buildClusterRules5m(
 				nsFilter,
 			),
 		),
-		rule(
+		rb.Rule(
 			"acm_rs:cluster:cpu_usage:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(node_namespace_pod_container:`+
@@ -204,14 +158,14 @@ func buildClusterRules5m(
 				nsFilter,
 			),
 		),
-		rule(
+		rb.Rule(
 			"acm_rs:cluster:memory_request_hard:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(kube_resourcequota{resource=~"requests.memory", type="hard", %s}) by (cluster)[5m:])`,
 				nsFilter,
 			),
 		),
-		rule(
+		rb.Rule(
 			"acm_rs:cluster:memory_request:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(kube_pod_container_resource_requests{`+
@@ -219,7 +173,7 @@ func buildClusterRules5m(
 				nsFilter,
 			),
 		),
-		rule(
+		rb.Rule(
 			"acm_rs:cluster:memory_usage:5m",
 			fmt.Sprintf(
 				`max_over_time(sum(container_memory_working_set_bytes{`+
@@ -230,34 +184,19 @@ func buildClusterRules5m(
 	}
 }
 
-func buildClusterRules1d(
-	configData rightsizing.RSConfigMapData,
-	ruleWithLabels func(string, string) monitoringv1.Rule,
-) []monitoringv1.Rule {
+func buildClusterRules1d(configData rightsizing.RSConfigMapData, rb *rightsizing.RuleBuilder) []monitoringv1.Rule {
 	rp := configData.PrometheusRuleConfig.RecommendationPercentage
 	if rp == 0 {
 		rp = rightsizing.DefaultRecommendationPercentage
 	}
 	return []monitoringv1.Rule{
-		ruleWithLabels("acm_rs:cluster:cpu_request_hard", `max_over_time(acm_rs:cluster:cpu_request_hard:5m[1d])`),
-		ruleWithLabels("acm_rs:cluster:cpu_request", `max_over_time(acm_rs:cluster:cpu_request:5m[1d])`),
-		ruleWithLabels("acm_rs:cluster:cpu_usage", `max_over_time(acm_rs:cluster:cpu_usage:5m[1d])`),
-		ruleWithLabels(
-			"acm_rs:cluster:cpu_recommendation",
-			fmt.Sprintf(
-				`max_over_time(acm_rs:cluster:cpu_usage:5m[1d]) * (%d/100)`,
-				rp,
-			),
-		),
-		ruleWithLabels("acm_rs:cluster:memory_request_hard", `max_over_time(acm_rs:cluster:memory_request_hard:5m[1d])`),
-		ruleWithLabels("acm_rs:cluster:memory_request", `max_over_time(acm_rs:cluster:memory_request:5m[1d])`),
-		ruleWithLabels("acm_rs:cluster:memory_usage", `max_over_time(acm_rs:cluster:memory_usage:5m[1d])`),
-		ruleWithLabels(
-			"acm_rs:cluster:memory_recommendation",
-			fmt.Sprintf(
-				`max_over_time(acm_rs:cluster:memory_usage:5m[1d]) * (%d/100)`,
-				rp,
-			),
-		),
+		rb.RuleWithLabels("acm_rs:cluster:cpu_request_hard", rightsizing.Build1dAggregationExpr("acm_rs:cluster:cpu_request_hard:5m")),
+		rb.RuleWithLabels("acm_rs:cluster:cpu_request", rightsizing.Build1dAggregationExpr("acm_rs:cluster:cpu_request:5m")),
+		rb.RuleWithLabels("acm_rs:cluster:cpu_usage", rightsizing.Build1dAggregationExpr("acm_rs:cluster:cpu_usage:5m")),
+		rb.RuleWithLabels("acm_rs:cluster:cpu_recommendation", rightsizing.BuildRecommendationExpr("acm_rs:cluster:cpu_usage:5m", rp)),
+		rb.RuleWithLabels("acm_rs:cluster:memory_request_hard", rightsizing.Build1dAggregationExpr("acm_rs:cluster:memory_request_hard:5m")),
+		rb.RuleWithLabels("acm_rs:cluster:memory_request", rightsizing.Build1dAggregationExpr("acm_rs:cluster:memory_request:5m")),
+		rb.RuleWithLabels("acm_rs:cluster:memory_usage", rightsizing.Build1dAggregationExpr("acm_rs:cluster:memory_usage:5m")),
+		rb.RuleWithLabels("acm_rs:cluster:memory_recommendation", rightsizing.BuildRecommendationExpr("acm_rs:cluster:memory_usage:5m", rp)),
 	}
 }

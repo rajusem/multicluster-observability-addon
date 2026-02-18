@@ -19,8 +19,19 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	// MCOAClusterManagementAddOnName is the name of the MCOA ClusterManagementAddOn
+	MCOAClusterManagementAddOnName = "multicluster-observability-addon"
+
+	// RightSizingCapableAnnotation indicates MCOA should handle right-sizing deployment
+	// If this annotation is not present, MCO handles right-sizing via Policy
+	RightSizingCapableAnnotation = "observability.open-cluster-management.io/right-sizing-capable"
 )
 
 // OptionsBuilder builds right-sizing options for the helm chart
@@ -44,8 +55,21 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 		return ret, nil
 	}
 
+	// Check if MCOA should handle right-sizing (annotation must be present with valid version)
+	// If annotation is not present or version is unsupported, MCO handles right-sizing via Policy
+	capable := o.isRightSizingCapable(ctx)
+	o.Logger.V(1).Info("Right-sizing capability check", "capable", capable, "cluster", cluster.Name)
+	if !capable {
+		o.Logger.V(1).Info("MCOA right-sizing-capable annotation not present or invalid, MCO will handle via Policy", "cluster", cluster.Name)
+		return ret, nil
+	}
+	o.Logger.V(1).Info("MCOA is right-sizing capable, will deploy PrometheusRules via ManifestWork", "cluster", cluster.Name)
+
+	namespaceEnabled := opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled
+	virtualizationEnabled := opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled
+
 	// Build namespace right-sizing options
-	if opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled {
+	if namespaceEnabled {
 		// Ensure ConfigMap exists on hub (MCOA owns all RS resources)
 		if err := o.ensureNamespaceConfigMap(ctx); err != nil {
 			o.Logger.Error(err, "Failed to ensure namespace ConfigMap exists, continuing with defaults")
@@ -59,7 +83,7 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 	}
 
 	// Build virtualization right-sizing options
-	if opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled {
+	if virtualizationEnabled {
 		// Ensure ConfigMap exists on hub (MCOA owns all RS resources)
 		if err := o.ensureVirtualizationConfigMap(ctx); err != nil {
 			o.Logger.Error(err, "Failed to ensure virtualization ConfigMap exists, continuing with defaults")
@@ -70,6 +94,22 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 			return ret, fmt.Errorf("failed to build virtualization right-sizing options: %w", err)
 		}
 		ret.VirtualizationRightSizing = virtOpts
+	}
+
+	// Generate ScrapeConfig for metrics federation if any right-sizing is enabled
+	if namespaceEnabled || virtualizationEnabled {
+		scrapeConfig := rightsizing.GenerateScrapeConfig(namespaceEnabled, virtualizationEnabled)
+		if scrapeConfig != nil {
+			// Add ScrapeConfig to namespace options (it will be merged with platform ScrapeConfigs)
+			if namespaceEnabled {
+				ret.NamespaceRightSizing.ScrapeConfigs = append(ret.NamespaceRightSizing.ScrapeConfigs, scrapeConfig)
+			} else {
+				ret.VirtualizationRightSizing.ScrapeConfigs = append(ret.VirtualizationRightSizing.ScrapeConfigs, scrapeConfig)
+			}
+			o.Logger.V(2).Info("Generated right-sizing ScrapeConfig for metrics federation",
+				"namespaceEnabled", namespaceEnabled,
+				"virtualizationEnabled", virtualizationEnabled)
+		}
 	}
 
 	return ret, nil
@@ -178,7 +218,17 @@ func (o *OptionsBuilder) ensureVirtualizationConfigMap(ctx context.Context) erro
 
 // createDefaultConfigMap creates a ConfigMap with the provided data.
 // The ConfigMap is labeled to indicate it's managed by MCOA for right-sizing.
+// An owner reference to the ClusterManagementAddOn is added for tracking purposes.
+// Note: Cross-scope owner references (cluster-scoped to namespace-scoped) don't enable
+// Kubernetes garbage collection, but they help with ownership tracking and tooling.
 func (o *OptionsBuilder) createDefaultConfigMap(ctx context.Context, name string, data map[string]string) error {
+	// Get the ClusterManagementAddOn for owner reference
+	cmao := &addonv1alpha1.ClusterManagementAddOn{}
+	if err := o.Client.Get(ctx, types.NamespacedName{Name: MCOAClusterManagementAddOnName}, cmao); err != nil {
+		o.Logger.Error(err, "Failed to get ClusterManagementAddOn for owner reference, creating ConfigMap without owner")
+		// Continue without owner reference rather than failing
+	}
+
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -191,10 +241,61 @@ func (o *OptionsBuilder) createDefaultConfigMap(ctx context.Context, name string
 		Data: data,
 	}
 
+	// Add owner reference if we got the ClusterManagementAddOn
+	// Note: Cross-scope owner references don't enable garbage collection,
+	// but they help with ownership tracking and tooling visibility.
+	if cmao.Name != "" {
+		cm.OwnerReferences = []metav1.OwnerReference{
+			{
+				APIVersion: addonv1alpha1.SchemeGroupVersion.String(),
+				Kind:       "ClusterManagementAddOn",
+				Name:       cmao.Name,
+				UID:        cmao.UID,
+			},
+		}
+	}
+
 	if err := o.Client.Create(ctx, cm); err != nil {
 		return fmt.Errorf("failed to create ConfigMap %s: %w", name, err)
 	}
 
-	o.Logger.Info("Created right-sizing ConfigMap", "name", name, "namespace", addoncfg.InstallNamespace)
+	o.Logger.V(1).Info("Created right-sizing ConfigMap", "name", name, "namespace", addoncfg.InstallNamespace)
 	return nil
+}
+
+// isRightSizingCapable checks if the MCOA ClusterManagementAddOn has the right-sizing-capable annotation
+// with a supported version value.
+// If the annotation is present with value "v1", MCOA handles right-sizing deployment via ManifestWork.
+// If the annotation is not present or has an unsupported version, MCO handles right-sizing via Policy
+// (for backward compatibility).
+func (o *OptionsBuilder) isRightSizingCapable(ctx context.Context) bool {
+	cmao := &addonv1alpha1.ClusterManagementAddOn{}
+	err := o.Client.Get(ctx, types.NamespacedName{Name: MCOAClusterManagementAddOnName}, cmao)
+	if err != nil {
+		// If we can't get the ClusterManagementAddOn, assume MCO should handle
+		o.Logger.Error(err, "Failed to get ClusterManagementAddOn, assuming MCO handles right-sizing")
+		return false
+	}
+
+	o.Logger.V(2).Info("Got ClusterManagementAddOn", "name", cmao.Name, "annotations", cmao.Annotations)
+
+	if cmao.Annotations == nil {
+		o.Logger.V(2).Info("ClusterManagementAddOn has no annotations")
+		return false
+	}
+
+	value, exists := cmao.Annotations[RightSizingCapableAnnotation]
+	o.Logger.V(2).Info("Annotation check result", "annotation", RightSizingCapableAnnotation, "exists", exists, "value", value)
+
+	if !exists {
+		return false
+	}
+
+	// Version check - currently only v1 is supported
+	if value != "v1" {
+		o.Logger.V(1).Info("Unsupported right-sizing capability version", "version", value, "expected", "v1")
+		return false
+	}
+
+	return true
 }
