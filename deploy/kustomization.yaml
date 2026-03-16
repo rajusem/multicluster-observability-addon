@@ -1,7 +1,7 @@
 images:
 - name: controller
   newName: quay.io/rzalavad/multicluster-observability-addon
-  newTag: v41
+  newTag: v43
 
 namespace: open-cluster-management-observability
 
