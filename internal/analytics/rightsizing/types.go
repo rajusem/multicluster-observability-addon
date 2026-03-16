@@ -4,6 +4,10 @@
 
 package rightsizing
 
+import (
+	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
+)
+
 // Common constants
 const (
 	DefaultRecommendationPercentage = 110
@@ -12,10 +16,15 @@ const (
 	// Namespace right-sizing constants
 	NamespacePrometheusRuleName = "acm-rs-namespace-prometheus-rules"
 	NamespaceConfigMapName      = "rs-namespace-config"
+	NamespacePlacementName      = "rs-namespace-placement"
 
 	// Virtualization right-sizing constants
 	VirtualizationPrometheusRuleName = "acm-rs-virt-prometheus-rules"
 	VirtualizationConfigMapName      = "rs-virt-config"
+	VirtualizationPlacementName      = "rs-virt-placement"
+
+	// PlacementDecisionLabel is the standard OCM label on PlacementDecisions referencing their Placement
+	PlacementDecisionLabel = "cluster.open-cluster-management.io/placement"
 )
 
 // RSLabelFilter represents label filtering criteria for right-sizing
@@ -37,5 +46,6 @@ type RSPrometheusRuleConfig struct {
 
 // RSConfigMapData represents the configmap data structure for right-sizing
 type RSConfigMapData struct {
-	PrometheusRuleConfig RSPrometheusRuleConfig `yaml:"prometheusRuleConfig" json:"prometheusRuleConfig"`
+	PrometheusRuleConfig   RSPrometheusRuleConfig   `yaml:"prometheusRuleConfig" json:"prometheusRuleConfig"`
+	PlacementConfiguration clusterv1beta1.Placement `yaml:"placementConfiguration" json:"placementConfiguration"`
 }

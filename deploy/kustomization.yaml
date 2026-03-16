@@ -1,7 +1,7 @@
 images:
 - name: controller
-  newName: quay.io/rhobs/multicluster-observability-addon
-  newTag: v0.0.1
+  newName: quay.io/rzalavad/multicluster-observability-addon
+  newTag: v38
 
 namespace: open-cluster-management-observability
 
@@ -15,8 +15,8 @@ resources:
 - crds/observability.openshift.io_clusterlogforwarders.yaml
 - crds/opentelemetry.io_opentelemetrycollectors.yaml
 - crds/opentelemetry.io_instrumentations.yaml
-- crds/monitoring.coreos.com_prometheusagents.yaml
-- crds/monitoring.coreos.com_scrapeconfigs.yaml
+- crds/monitoring.rhobs_prometheusagents.yaml
+- crds/monitoring.rhobs_scrapeconfigs.yaml
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
