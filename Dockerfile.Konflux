@@ -1,7 +1,7 @@
 # Copyright Contributors to the Open Cluster Management project
 # Licensed under the Apache License 2.0
 
-FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.25.3 AS builder
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.25.7 AS builder
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -47,8 +47,8 @@ LABEL org.label-schema.vendor="Red Hat" \
     org.label-schema.vcs-url=$VCS_URL \
     org.label-schema.license="Red Hat Advanced Cluster Management for Kubernetes EULA" \
     org.label-schema.schema-version="1.0" \
-    name="rhacm2/multicluster-observability-addon-rhel9" \
-    cpe="cpe:/a:redhat:acm:2.16::el9" \
+    name="rhacm2/acm-multicluster-observability-addon-rhel9" \
+    cpe="cpe:/a:redhat:acm:2.17::el9" \
     maintainer="$IMAGE_MAINTAINER" \
     version="$IMAGE_VERSION" \
     release="$IMAGE_RELEASE" \

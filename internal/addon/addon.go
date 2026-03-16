@@ -342,8 +342,10 @@ func healthChecker(k8s client.Client, fields []agent.FieldResult, mc *v1.Managed
 	if err := checkTracing(fields, opts); err != nil {
 		return err
 	}
-	if err := checkMetricsUIPlugin(fields, opts); err != nil {
-		return err
+	if common.IsHubCluster(mc) {
+		if err := checkMetricsUIPlugin(fields, opts); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -354,6 +356,9 @@ func checkMetrics(fields []agent.FieldResult, opts Options, isOCP bool) error {
 		return nil
 	}
 
+	foundPlatformMetrics := false
+	foundUserWorkloadMetrics := false
+
 	for _, field := range fields {
 		identifier := field.ResourceIdentifier
 		switch identifier.Resource {
@@ -361,18 +366,20 @@ func checkMetrics(fields []agent.FieldResult, opts Options, isOCP bool) error {
 			switch identifier.Name {
 			case mconfig.PlatformMetricsCollectorApp:
 				if !opts.Platform.Metrics.CollectionEnabled {
-					return nil
+					continue
 				}
 				if err := checkPrometheusAgent(field.FeedbackResult.Values); err != nil {
 					return fmt.Errorf("failed to check resource %s with name %s: %w", identifier.Resource, identifier.Name, err)
 				}
+				foundPlatformMetrics = true
 			case mconfig.UserWorkloadMetricsCollectorApp:
 				if !opts.UserWorkloads.Metrics.CollectionEnabled || !isOCP {
-					return nil
+					continue
 				}
 				if err := checkPrometheusAgent(field.FeedbackResult.Values); err != nil {
 					return fmt.Errorf("failed to check resource %s with name %s: %w", identifier.Resource, identifier.Name, err)
 				}
+				foundUserWorkloadMetrics = true
 			}
 
 		case crdResourceName:
@@ -383,6 +390,15 @@ func checkMetrics(fields []agent.FieldResult, opts Options, isOCP bool) error {
 			}
 		}
 	}
+
+	if opts.Platform.Metrics.CollectionEnabled && !foundPlatformMetrics {
+		return fmt.Errorf("%w: %s with name %s", errMissingFields, cooprometheusv1alpha1.PrometheusAgentName, mconfig.PlatformMetricsCollectorApp)
+	}
+
+	if opts.UserWorkloads.Metrics.CollectionEnabled && isOCP && !foundUserWorkloadMetrics {
+		return fmt.Errorf("%w: %s with name %s", errMissingFields, cooprometheusv1alpha1.PrometheusAgentName, mconfig.UserWorkloadMetricsCollectorApp)
+	}
+
 	return nil
 }
 
@@ -391,6 +407,7 @@ func checkLogging(fields []agent.FieldResult, opts Options) error {
 		return nil
 	}
 
+	foundCLF := false
 	for _, field := range fields {
 		identifier := field.ResourceIdentifier
 		switch identifier.Resource {
@@ -412,8 +429,14 @@ func checkLogging(fields []agent.FieldResult, opts Options) error {
 				}
 				// clf passes the health check
 			}
+			foundCLF = true
 		}
 	}
+
+	if !foundCLF {
+		return fmt.Errorf("%w: %s", errMissingFields, addoncfg.ClusterLogForwardersResource)
+	}
+
 	return nil
 }
 
@@ -422,6 +445,7 @@ func checkTracing(fields []agent.FieldResult, opts Options) error {
 		return nil
 	}
 
+	foundOtelCol := false
 	for _, field := range fields {
 		identifier := field.ResourceIdentifier
 		switch identifier.Resource {
@@ -443,8 +467,14 @@ func checkTracing(fields []agent.FieldResult, opts Options) error {
 				}
 				// otel collector passes the health check
 			}
+			foundOtelCol = true
 		}
 	}
+
+	if !foundOtelCol {
+		return fmt.Errorf("%w: %s", errMissingFields, addoncfg.OpenTelemetryCollectorsResource)
+	}
+
 	return nil
 }
 
@@ -453,6 +483,7 @@ func checkMetricsUIPlugin(fields []agent.FieldResult, opts Options) error {
 		return nil
 	}
 
+	foundUIPlugin := false
 	for _, field := range fields {
 		identifier := field.ResourceIdentifier
 		switch identifier.Resource {
@@ -474,8 +505,14 @@ func checkMetricsUIPlugin(fields []agent.FieldResult, opts Options) error {
 				}
 				// uiplugin passes the health check
 			}
+			foundUIPlugin = true
 		}
 	}
+
+	if !foundUIPlugin {
+		return fmt.Errorf("%w: %s", errMissingFields, addoncfg.UiPluginsResource)
+	}
+
 	return nil
 }
 

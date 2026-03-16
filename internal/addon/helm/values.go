@@ -185,6 +185,7 @@ func getCOOValues(ctx context.Context, k8s client.Client, logger logr.Logger, cl
 	return cmanifests.BuildValues(opts, installCOO, common.IsHubCluster(cluster)), nil
 }
 
+
 // getRightSizingValuesFromOpts converts already-built right-sizing options to helm values.
 // This is used to avoid rebuilding the options twice (once for ScrapeConfig merging, once for values).
 func getRightSizingValuesFromOpts(rsOpts *rshandlers.Options) (*rshandlers.RightSizingValues, error) {
