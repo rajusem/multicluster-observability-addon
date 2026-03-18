@@ -25,11 +25,6 @@ func (o *OptionsBuilder) ReconcilePlacements(ctx context.Context, opts addon.Opt
 		return nil
 	}
 
-	capable := o.isRightSizingCapable(ctx)
-	if !capable {
-		return nil
-	}
-
 	if opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled {
 		configData, err := o.getConfigData(ctx, rightsizing.NamespaceConfigMapName)
 		if err != nil {

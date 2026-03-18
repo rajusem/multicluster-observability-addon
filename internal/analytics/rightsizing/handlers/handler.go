@@ -28,10 +28,6 @@ import (
 const (
 	// MCOAClusterManagementAddOnName is the name of the MCOA ClusterManagementAddOn
 	MCOAClusterManagementAddOnName = "multicluster-observability-addon"
-
-	// RightSizingCapableAnnotation indicates MCOA should handle right-sizing deployment
-	// If this annotation is not present, MCO handles right-sizing via Policy
-	RightSizingCapableAnnotation = "observability.open-cluster-management.io/right-sizing-capable"
 )
 
 // OptionsBuilder builds right-sizing options for the helm chart
@@ -54,16 +50,6 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 		o.Logger.V(2).Info("Skipping right-sizing for non-OpenShift cluster", "cluster", cluster.Name)
 		return ret, nil
 	}
-
-	// Check if MCOA should handle right-sizing (annotation must be present with valid version)
-	// If annotation is not present or version is unsupported, MCO handles right-sizing via Policy
-	capable := o.isRightSizingCapable(ctx)
-	o.Logger.V(1).Info("Right-sizing capability check", "capable", capable, "cluster", cluster.Name)
-	if !capable {
-		o.Logger.V(1).Info("MCOA right-sizing-capable annotation not present or invalid, MCO will handle via Policy", "cluster", cluster.Name)
-		return ret, nil
-	}
-	o.Logger.V(1).Info("MCOA is right-sizing capable, will deploy PrometheusRules via ManifestWork", "cluster", cluster.Name)
 
 	namespaceEnabled := opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled
 	virtualizationEnabled := opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled
@@ -272,39 +258,3 @@ func (o *OptionsBuilder) createDefaultConfigMap(ctx context.Context, name string
 	return nil
 }
 
-// isRightSizingCapable checks if the MCOA ClusterManagementAddOn has the right-sizing-capable annotation
-// with a supported version value.
-// If the annotation is present with value "v1", MCOA handles right-sizing deployment via ManifestWork.
-// If the annotation is not present or has an unsupported version, MCO handles right-sizing via Policy
-// (for backward compatibility).
-func (o *OptionsBuilder) isRightSizingCapable(ctx context.Context) bool {
-	cmao := &addonv1alpha1.ClusterManagementAddOn{}
-	err := o.Client.Get(ctx, types.NamespacedName{Name: MCOAClusterManagementAddOnName}, cmao)
-	if err != nil {
-		// If we can't get the ClusterManagementAddOn, assume MCO should handle
-		o.Logger.Error(err, "Failed to get ClusterManagementAddOn, assuming MCO handles right-sizing")
-		return false
-	}
-
-	o.Logger.V(2).Info("Got ClusterManagementAddOn", "name", cmao.Name, "annotations", cmao.Annotations)
-
-	if cmao.Annotations == nil {
-		o.Logger.V(2).Info("ClusterManagementAddOn has no annotations")
-		return false
-	}
-
-	value, exists := cmao.Annotations[RightSizingCapableAnnotation]
-	o.Logger.V(2).Info("Annotation check result", "annotation", RightSizingCapableAnnotation, "exists", exists, "value", value)
-
-	if !exists {
-		return false
-	}
-
-	// Version check - currently only v1 is supported
-	if value != "v1" {
-		o.Logger.V(1).Info("Unsupported right-sizing capability version", "version", value, "expected", "v1")
-		return false
-	}
-
-	return true
-}
