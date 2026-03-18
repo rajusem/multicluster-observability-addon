@@ -9,7 +9,6 @@ import (
 	"fmt"
 
 	"github.com/stolostron/multicluster-observability-addon/internal/addon"
-	addoncfg "github.com/stolostron/multicluster-observability-addon/internal/addon/config"
 	"github.com/stolostron/multicluster-observability-addon/internal/analytics/rightsizing"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,7 +64,7 @@ func (o *OptionsBuilder) ReconcilePlacements(ctx context.Context, opts addon.Opt
 // ensurePlacement creates or updates a Placement resource with owner reference.
 // Handles AlreadyExists race condition gracefully.
 func (o *OptionsBuilder) ensurePlacement(ctx context.Context, placementName string, placementConfig clusterv1beta1.Placement) error {
-	key := types.NamespacedName{Name: placementName, Namespace: addoncfg.InstallNamespace}
+	key := types.NamespacedName{Name: placementName, Namespace: rightsizing.PlacementNamespace}
 	placement := &clusterv1beta1.Placement{}
 
 	err := o.Client.Get(ctx, key, placement)
@@ -78,7 +77,7 @@ func (o *OptionsBuilder) ensurePlacement(ctx context.Context, placementName stri
 		placement = &clusterv1beta1.Placement{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      placementName,
-				Namespace: addoncfg.InstallNamespace,
+				Namespace: rightsizing.PlacementNamespace,
 				Labels: map[string]string{
 					"app.kubernetes.io/component":  "right-sizing",
 					"app.kubernetes.io/managed-by": "multicluster-observability-addon",
@@ -108,7 +107,7 @@ func (o *OptionsBuilder) ensurePlacement(ctx context.Context, placementName stri
 				return fmt.Errorf("failed to create placement %s: %w", placementName, err)
 			}
 		} else {
-			o.Logger.V(1).Info("Created right-sizing Placement", "name", placementName, "namespace", addoncfg.InstallNamespace)
+			o.Logger.V(1).Info("Created right-sizing Placement", "name", placementName, "namespace", rightsizing.PlacementNamespace)
 			return nil
 		}
 	}
@@ -118,7 +117,7 @@ func (o *OptionsBuilder) ensurePlacement(ctx context.Context, placementName stri
 	if err := o.Client.Update(ctx, placement); err != nil {
 		return fmt.Errorf("failed to update placement %s: %w", placementName, err)
 	}
-	o.Logger.V(1).Info("Updated right-sizing Placement", "name", placementName, "namespace", addoncfg.InstallNamespace)
+	o.Logger.V(1).Info("Updated right-sizing Placement", "name", placementName, "namespace", rightsizing.PlacementNamespace)
 	return nil
 }
 
@@ -127,7 +126,7 @@ func (o *OptionsBuilder) ensurePlacement(ctx context.Context, placementName stri
 func (o *OptionsBuilder) isClusterSelectedByPlacement(ctx context.Context, placementName, clusterName string) (bool, error) {
 	placementDecisionList := &clusterv1beta1.PlacementDecisionList{}
 	err := o.Client.List(ctx, placementDecisionList,
-		client.InNamespace(addoncfg.InstallNamespace),
+		client.InNamespace(rightsizing.PlacementNamespace),
 		client.MatchingLabels{rightsizing.PlacementDecisionLabel: placementName},
 	)
 	if err != nil {

@@ -13,6 +13,11 @@ const (
 	DefaultRecommendationPercentage = 110
 	MonitoringNamespace             = "openshift-monitoring"
 
+	// PlacementNamespace is where RS Placements are created.
+	// Uses global-set namespace which already has a ManagedClusterSetBinding,
+	// enabling Placements to select clusters from the default ManagedClusterSet.
+	PlacementNamespace = "open-cluster-management-global-set"
+
 	// Namespace right-sizing constants
 	NamespacePrometheusRuleName = "acm-rs-namespace-prometheus-rules"
 	NamespaceConfigMapName      = "rs-namespace-config"
