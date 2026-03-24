@@ -33,13 +33,14 @@ type DashboardBuilder struct {
 }
 
 type COOValues struct {
-	Enabled            bool                                `json:"enabled"`
-	InstallCOO         bool                                `json:"installCOO"`
-	MonitoringUIPlugin bool                                `json:"monitoringUIPlugin"`
-	Perses             bool                                `json:"perses"`
-	Dashboards         []DashboardValue                    `json:"dashboards,omitempty"`
-	Metrics            *UIValues                           `json:"metrics,omitempty"`
-	IncidentDetection  *imanifests.IncidentDetectionValues `json:"incidentDetection,omitempty"`
+	Enabled             bool                                `json:"enabled"`
+	InstallCOO          bool                                `json:"installCOO"`
+	MonitoringUIPlugin  bool                                `json:"monitoringUIPlugin"`
+	Perses              bool                                `json:"perses"`
+	Dashboards          []DashboardValue                    `json:"dashboards,omitempty"`
+	AnalyticsDashboards []DashboardValue                    `json:"analyticsDashboards,omitempty"`
+	Metrics             *UIValues                           `json:"metrics,omitempty"`
+	IncidentDetection   *imanifests.IncidentDetectionValues `json:"incidentDetection,omitempty"`
 }
 
 type UIValues struct {
@@ -62,21 +63,22 @@ func BuildValues(opts addon.Options, installOfCOOOnTheHubIsNeeded bool, isHubClu
 	if incidentDetection != nil {
 		if incidentDetection.Enabled {
 			incidentDetectionEnabled = true
-			if isHubCluster {
-				dashboards = append(dashboards, buildIncidentDetetctionDashboards()...)
-			}
 		}
 	}
 
-	// Add right-sizing dashboards (hub only)
+	// Analytics dashboards (incident detection + right-sizing) — deployed to observability-analytics namespace
+	var analyticsDashboards []DashboardValue
 	if isHubCluster {
+		if incidentDetectionEnabled {
+			analyticsDashboards = append(analyticsDashboards, buildIncidentDetetctionDashboards()...)
+		}
 		if opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled {
 			rightSizingEnabled = true
-			dashboards = append(dashboards, buildNamespaceRSDashboards()...)
+			analyticsDashboards = append(analyticsDashboards, buildNamespaceRSDashboards()...)
 		}
 		if opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled {
 			rightSizingEnabled = true
-			dashboards = append(dashboards, buildVMRSDashboards()...)
+			analyticsDashboards = append(analyticsDashboards, buildVMRSDashboards()...)
 		}
 	}
 
@@ -91,14 +93,15 @@ func BuildValues(opts addon.Options, installOfCOOOnTheHubIsNeeded bool, isHubClu
 
 	return &COOValues{
 		// Decide if this chart is needed
-		Enabled: len(dashboards) > 0 || incidentDetectionEnabled,
+		Enabled: len(dashboards) > 0 || len(analyticsDashboards) > 0 || incidentDetectionEnabled,
 		// Decide if COO chart is needs to be installed
-		InstallCOO:         installCOO,
-		MonitoringUIPlugin: len(dashboards) > 0 || incidentDetectionEnabled,
-		Perses:             len(dashboards) > 0,
-		Dashboards:         dashboards,
-		Metrics:            metricsUI,
-		IncidentDetection:  incidentDetection,
+		InstallCOO:          installCOO,
+		MonitoringUIPlugin:  len(dashboards) > 0 || len(analyticsDashboards) > 0 || incidentDetectionEnabled,
+		Perses:              len(dashboards) > 0 || len(analyticsDashboards) > 0,
+		Dashboards:          dashboards,
+		AnalyticsDashboards: analyticsDashboards,
+		Metrics:             metricsUI,
+		IncidentDetection:   incidentDetection,
 	}
 }
 
@@ -116,11 +119,11 @@ func enableUI(opts addon.MetricsOptions, isHub bool) *UIValues {
 	}
 }
 
-func buildDashboards(builders []DashboardBuilder, datasource string) []DashboardValue {
+func buildDashboards(builders []DashboardBuilder, datasource string, project string) []DashboardValue {
 	var dashboards []DashboardValue
 
 	for _, builder := range builders {
-		db, err := builder.fn(config.InstallNamespace, datasource, clusterLabelName)
+		db, err := builder.fn(project, datasource, clusterLabelName)
 		if err != nil {
 			log.Printf("Failed to build %s dashboard: %v", builder.name, err)
 			continue
@@ -150,7 +153,7 @@ func buildACMDashboards() []DashboardValue {
 		{acm.BuildACMClustersByAlert, "ACMClustersByAlert"},
 	}
 
-	return buildDashboards(builders, dsThanos)
+	return buildDashboards(builders, dsThanos, config.InstallNamespace)
 }
 
 func buildIncidentDetetctionDashboards() []DashboardValue {
@@ -158,7 +161,7 @@ func buildIncidentDetetctionDashboards() []DashboardValue {
 		{incident_management.BuildACMIncidentsOverview, "IncidentDetectionOverview"},
 	}
 
-	return buildDashboards(builders, dsThanos)
+	return buildDashboards(builders, dsThanos, config.AnalyticsNamespace)
 }
 
 func buildK8sDashboards() []DashboardValue {
@@ -203,7 +206,7 @@ func buildNamespaceRSDashboards() []DashboardValue {
 		{rsperses.BuildNamespaceRightSizing, "NamespaceRightSizing"},
 	}
 
-	return buildDashboards(builders, dsThanos)
+	return buildDashboards(builders, dsThanos, config.AnalyticsNamespace)
 }
 
 func buildVMRSDashboards() []DashboardValue {
@@ -211,5 +214,5 @@ func buildVMRSDashboards() []DashboardValue {
 		{rsperses.BuildVirtualizationRightSizing, "VirtualizationRightSizing"},
 	}
 
-	return buildDashboards(builders, dsThanos)
+	return buildDashboards(builders, dsThanos, config.AnalyticsNamespace)
 }
