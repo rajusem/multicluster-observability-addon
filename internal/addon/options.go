@@ -273,18 +273,18 @@ func BuildOptions(addOnDeployment *addonapiv1alpha1.AddOnDeploymentConfig) (Opti
 		}
 	}
 
-	// Auto-enable right-sizing by default when not explicitly configured.
+	// Auto-enable right-sizing by default when keys are not yet present in ADC.
 	//
-	// This behavior is critical for MCO/MCOA coexistence:
-	// - When MCO delegates right-sizing to MCOA (via the right-sizing-capable annotation),
-	//   MCO does NOT sync a "disabled" state to the AddOnDeploymentConfig.
-	// - Instead, MCO leaves the right-sizing keys unset, allowing MCOA's auto-enable
-	//   logic to take over and enable right-sizing automatically.
-	// - This ensures right-sizing works on fresh installs and when MCO delegates to MCOA.
+	// This is a bootstrap safety net for the window between ADC creation (by MCO
+	// main controller) and first analytics controller reconcile (which calls
+	// syncRightSizingStateToADC to explicitly set the keys).
 	//
-	// To explicitly disable right-sizing, set the key to "disabled" in AddOnDeploymentConfig:
-	// - platform.rightsizing.namespace: "disabled"
-	// - platform.rightsizing.virtualization: "disabled"
+	// Once syncRightSizingStateToADC runs, the keys are always present:
+	// - MCO mode: both keys set to "disabled" (MCO manages RS via Policy)
+	// - MCOA mode: keys set to "enabled"/"disabled" based on MCO CR spec
+	//
+	// The auto-enable ensures right-sizing works immediately on fresh installs
+	// before the analytics controller has had time to sync state to ADC.
 	if !nsRSExplicitlySet {
 		opts.Platform.Enabled = true
 		opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled = true

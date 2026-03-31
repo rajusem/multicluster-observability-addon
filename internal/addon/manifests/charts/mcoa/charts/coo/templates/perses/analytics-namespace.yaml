@@ -1,4 +1,10 @@
-{{- if .Values.analyticsDashboards }}
+{{- $hasAnalytics := dict }}
+{{- range .Values.dashboards }}
+{{- if eq .namespace "observability-analytics" }}
+{{- $_ := set $hasAnalytics "found" true }}
+{{- end }}
+{{- end }}
+{{- if hasKey $hasAnalytics "found" }}
 apiVersion: v1
 kind: Namespace
 metadata:

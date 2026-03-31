@@ -10,8 +10,6 @@ metrics:
 
 dashboards: []
 
-analyticsDashboards: []
-
 incidentDetection:
   enabled: false
 

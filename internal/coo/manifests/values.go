@@ -21,8 +21,9 @@ var (
 )
 
 type DashboardValue struct {
-	Name string `json:"name"`
-	Data string `json:"data"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Data      string `json:"data"`
 }
 
 type DashboardBuilderFunc func(project string, datasource string, clusterLabelName string) (dashboard.Builder, error)
@@ -33,14 +34,13 @@ type DashboardBuilder struct {
 }
 
 type COOValues struct {
-	Enabled             bool                                `json:"enabled"`
-	InstallCOO          bool                                `json:"installCOO"`
-	MonitoringUIPlugin  bool                                `json:"monitoringUIPlugin"`
-	Perses              bool                                `json:"perses"`
-	Dashboards          []DashboardValue                    `json:"dashboards,omitempty"`
-	AnalyticsDashboards []DashboardValue                    `json:"analyticsDashboards,omitempty"`
-	Metrics             *UIValues                           `json:"metrics,omitempty"`
-	IncidentDetection   *imanifests.IncidentDetectionValues `json:"incidentDetection,omitempty"`
+	Enabled            bool                                `json:"enabled"`
+	InstallCOO         bool                                `json:"installCOO"`
+	MonitoringUIPlugin bool                                `json:"monitoringUIPlugin"`
+	Perses             bool                                `json:"perses"`
+	Dashboards         []DashboardValue                    `json:"dashboards,omitempty"`
+	Metrics            *UIValues                           `json:"metrics,omitempty"`
+	IncidentDetection  *imanifests.IncidentDetectionValues `json:"incidentDetection,omitempty"`
 }
 
 type UIValues struct {
@@ -67,18 +67,17 @@ func BuildValues(opts addon.Options, installOfCOOOnTheHubIsNeeded bool, isHubClu
 	}
 
 	// Analytics dashboards (incident detection + right-sizing) — deployed to observability-analytics namespace
-	var analyticsDashboards []DashboardValue
 	if isHubCluster {
 		if incidentDetectionEnabled {
-			analyticsDashboards = append(analyticsDashboards, buildIncidentDetetctionDashboards()...)
+			dashboards = append(dashboards, buildIncidentDetetctionDashboards()...)
 		}
 		if opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled {
 			rightSizingEnabled = true
-			analyticsDashboards = append(analyticsDashboards, buildNamespaceRSDashboards()...)
+			dashboards = append(dashboards, buildNamespaceRSDashboards()...)
 		}
 		if opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled {
 			rightSizingEnabled = true
-			analyticsDashboards = append(analyticsDashboards, buildVMRSDashboards()...)
+			dashboards = append(dashboards, buildVMRSDashboards()...)
 		}
 	}
 
@@ -92,16 +91,13 @@ func BuildValues(opts addon.Options, installOfCOOOnTheHubIsNeeded bool, isHubClu
 	}
 
 	return &COOValues{
-		// Decide if this chart is needed
-		Enabled: len(dashboards) > 0 || len(analyticsDashboards) > 0 || incidentDetectionEnabled,
-		// Decide if COO chart is needs to be installed
-		InstallCOO:          installCOO,
-		MonitoringUIPlugin:  len(dashboards) > 0 || len(analyticsDashboards) > 0 || incidentDetectionEnabled,
-		Perses:              len(dashboards) > 0 || len(analyticsDashboards) > 0,
-		Dashboards:          dashboards,
-		AnalyticsDashboards: analyticsDashboards,
-		Metrics:             metricsUI,
-		IncidentDetection:   incidentDetection,
+		Enabled:            len(dashboards) > 0 || incidentDetectionEnabled,
+		InstallCOO:         installCOO,
+		MonitoringUIPlugin: len(dashboards) > 0 || incidentDetectionEnabled,
+		Perses:             len(dashboards) > 0,
+		Dashboards:         dashboards,
+		Metrics:            metricsUI,
+		IncidentDetection:  incidentDetection,
 	}
 }
 
@@ -119,11 +115,11 @@ func enableUI(opts addon.MetricsOptions, isHub bool) *UIValues {
 	}
 }
 
-func buildDashboards(builders []DashboardBuilder, datasource string, project string) []DashboardValue {
+func buildDashboards(builders []DashboardBuilder, datasource string, namespace string) []DashboardValue {
 	var dashboards []DashboardValue
 
 	for _, builder := range builders {
-		db, err := builder.fn(project, datasource, clusterLabelName)
+		db, err := builder.fn(namespace, datasource, clusterLabelName)
 		if err != nil {
 			log.Printf("Failed to build %s dashboard: %v", builder.name, err)
 			continue
@@ -134,8 +130,9 @@ func buildDashboards(builders []DashboardBuilder, datasource string, project str
 			continue
 		}
 		dashboards = append(dashboards, DashboardValue{
-			Name: db.Dashboard.Metadata.Name,
-			Data: string(data),
+			Name:      db.Dashboard.Metadata.Name,
+			Namespace: namespace,
+			Data:      string(data),
 		})
 	}
 
@@ -193,8 +190,9 @@ func buildK8sDashboards() []DashboardValue {
 				continue
 			}
 			dashboards = append(dashboards, DashboardValue{
-				Name: db.Name,
-				Data: string(data),
+				Name:      db.Name,
+				Namespace: config.InstallNamespace,
+				Data:      string(data),
 			})
 		}
 	}
