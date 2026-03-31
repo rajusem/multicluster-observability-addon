@@ -75,7 +75,7 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 
 		// Check if this cluster is selected by the namespace Placement
 		// (Placement resource is created/updated by ResourceCreator)
-		nsSelected, err := o.isClusterSelectedByPlacement(ctx, rightsizing.NamespacePlacementName, cluster.Name)
+		nsSelected, err := o.isClusterSelectedByRSPlacement(ctx, rightsizing.NamespacePlacementName, cluster.Name)
 		if err != nil {
 			o.Logger.Error(err, "Failed to check namespace placement selection, defaulting to selected")
 			nsSelected = true
@@ -112,7 +112,7 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 		}
 
 		// Check if this cluster is selected by the virtualization Placement
-		virtSelected, err := o.isClusterSelectedByPlacement(ctx, rightsizing.VirtualizationPlacementName, cluster.Name)
+		virtSelected, err := o.isClusterSelectedByRSPlacement(ctx, rightsizing.VirtualizationPlacementName, cluster.Name)
 		if err != nil {
 			o.Logger.Error(err, "Failed to check virtualization placement selection, defaulting to selected")
 			virtSelected = true

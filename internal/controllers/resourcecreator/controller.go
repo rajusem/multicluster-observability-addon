@@ -171,12 +171,12 @@ func (r *ResourceCreatorReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	objs = append(objs, mDefaultConfig...)
 
-	// Reconcile right-sizing placements (hub-wide concern).
-	// Placement resources are created/updated here, not per-cluster in handler.go,
+	// Reconcile right-sizing resources (hub-wide concern).
+	// Placement and ConfigMap resources are created/updated/deleted here, not per-cluster in handler.go,
 	// to avoid race conditions from concurrent Build() calls.
 	rsBuilder := &rshandlers.OptionsBuilder{Client: r.Client, Logger: r.Log.WithName("rightsizing")}
-	if err := rsBuilder.ReconcilePlacements(ctx, opts); err != nil {
-		r.Log.Error(err, "failed to reconcile right-sizing placements, continuing")
+	if err := rsBuilder.ReconcileRSResources(ctx, opts); err != nil {
+		r.Log.Error(err, "failed to reconcile right-sizing resources, continuing")
 	}
 
 	if err := common.EnsureAddonConfig(ctx, r.Log, r.Client, objs); err != nil {
