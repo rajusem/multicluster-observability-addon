@@ -19,8 +19,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -213,17 +211,7 @@ func (o *OptionsBuilder) ensureVirtualizationConfigMap(ctx context.Context) erro
 
 // createDefaultConfigMap creates a ConfigMap with the provided data.
 // The ConfigMap is labeled to indicate it's managed by MCOA for right-sizing.
-// An owner reference to the ClusterManagementAddOn is added for tracking purposes.
-// Note: Cross-scope owner references (cluster-scoped to namespace-scoped) don't enable
-// Kubernetes garbage collection, but they help with ownership tracking and tooling.
 func (o *OptionsBuilder) createDefaultConfigMap(ctx context.Context, name string, data map[string]string) error {
-	// Get the ClusterManagementAddOn for owner reference
-	cmao := &addonv1alpha1.ClusterManagementAddOn{}
-	if err := o.Client.Get(ctx, types.NamespacedName{Name: MCOAClusterManagementAddOnName}, cmao); err != nil {
-		o.Logger.Error(err, "Failed to get ClusterManagementAddOn for owner reference, creating ConfigMap without owner")
-		// Continue without owner reference rather than failing
-	}
-
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -234,20 +222,6 @@ func (o *OptionsBuilder) createDefaultConfigMap(ctx context.Context, name string
 			},
 		},
 		Data: data,
-	}
-
-	// Add owner reference if we got the ClusterManagementAddOn
-	// Note: Cross-scope owner references don't enable garbage collection,
-	// but they help with ownership tracking and tooling visibility.
-	if cmao.Name != "" {
-		cm.OwnerReferences = []metav1.OwnerReference{
-			{
-				APIVersion: addonv1alpha1.SchemeGroupVersion.String(),
-				Kind:       "ClusterManagementAddOn",
-				Name:       cmao.Name,
-				UID:        cmao.UID,
-			},
-		}
 	}
 
 	if err := o.Client.Create(ctx, cm); err != nil {

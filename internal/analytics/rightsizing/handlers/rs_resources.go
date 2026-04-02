@@ -14,7 +14,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -96,17 +95,6 @@ func (o *OptionsBuilder) ensureRSPlacement(ctx context.Context, placementName st
 				},
 			},
 			Spec: placementConfig.Spec,
-		}
-
-		// Add owner reference for tracking
-		cmao := &addonv1alpha1.ClusterManagementAddOn{}
-		if err := o.Client.Get(ctx, types.NamespacedName{Name: MCOAClusterManagementAddOnName}, cmao); err == nil {
-			placement.OwnerReferences = []metav1.OwnerReference{{
-				APIVersion: addonv1alpha1.SchemeGroupVersion.String(),
-				Kind:       "ClusterManagementAddOn",
-				Name:       cmao.Name,
-				UID:        cmao.UID,
-			}}
 		}
 
 		if err := o.Client.Create(ctx, placement); err != nil {
