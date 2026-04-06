@@ -129,7 +129,8 @@ func (o *OptionsBuilder) Build(ctx context.Context, mcAddon *addonapiv1alpha1.Ma
 			o.Logger.V(2).Info("No scrape configs found for user workloads")
 		}
 		ret.UserWorkloads.Rules = common.FilterResourcesByLabelSelector[*prometheusv1.PrometheusRule](configResources, config.UserWorkloadPrometheusMatchLabels)
-		if len(ret.UserWorkloads.Rules) == 0 {
+		ret.UserWorkloads.COORules = append(ret.UserWorkloads.COORules, common.FilterResourcesByLabelSelector[*cooprometheusv1.PrometheusRule](configResources, config.UserWorkloadPrometheusMatchLabels)...)
+		if len(ret.UserWorkloads.Rules) == 0 && len(ret.UserWorkloads.COORules) == 0 {
 			o.Logger.V(2).Info("No rules found for user workloads")
 		}
 	}
@@ -379,7 +380,12 @@ func (o *OptionsBuilder) getAvailableConfigResources(ctx context.Context, mcAddo
 		case cooprometheusv1alpha1.ScrapeConfigName:
 			obj = &cooprometheusv1alpha1.ScrapeConfig{}
 		case prometheusv1.PrometheusRuleName:
-			obj = &prometheusv1.PrometheusRule{}
+			switch cfg.Group {
+			case cooprometheusv1.SchemeGroupVersion.Group:
+				obj = &cooprometheusv1.PrometheusRule{}
+			default:
+				obj = &prometheusv1.PrometheusRule{}
+			}
 		case "configmaps":
 			obj = &corev1.ConfigMap{}
 		default:

@@ -211,7 +211,7 @@ func (d DefaultStackResources) getPrometheusRules(ctx context.Context, mcoUID ty
 
 	promRuleList := &prometheusv1.PrometheusRuleList{}
 	if err = d.Client.List(ctx, promRuleList, client.InNamespace(addoncfg.InstallNamespace), client.MatchingLabelsSelector{Selector: labelSelector}); err != nil {
-		return nil, fmt.Errorf("failed to list scrapeConfigs: %w", err)
+		return nil, fmt.Errorf("failed to list prometheusRules: %w", err)
 	}
 
 	promRules := []client.Object{}

@@ -7,17 +7,18 @@ import (
 	panelgroup "github.com/perses/perses/go-sdk/panel-group"
 	listVar "github.com/perses/perses/go-sdk/variable/list-variable"
 	labelValuesVar "github.com/perses/plugins/prometheus/sdk/go/variable/label-values"
+	"github.com/prometheus/prometheus/model/labels"
 	panels "github.com/stolostron/multicluster-observability-addon/internal/perses/panels/acm"
 )
 
-func withAlertSeverityGroup(datasource string, labelMatcher promql.LabelMatcher) dashboard.Option {
+func withAlertSeverityGroup(datasource string, labelMatcher *labels.Matcher) dashboard.Option {
 	return dashboard.AddPanelGroup("Alert Severity",
 		panelgroup.PanelsPerLine(1),
 		panels.AlertSeverity(datasource, labelMatcher),
 	)
 }
 
-func withAlertsByClusterTrendsGroup(datasource string, labelMatcher promql.LabelMatcher) dashboard.Option {
+func withAlertsByClusterTrendsGroup(datasource string, labelMatcher *labels.Matcher) dashboard.Option {
 	return dashboard.AddPanelGroup("Alert Trends",
 		panelgroup.PanelsPerLine(2),
 		panels.FiringAlertsTrend(datasource, labelMatcher),
@@ -25,7 +26,7 @@ func withAlertsByClusterTrendsGroup(datasource string, labelMatcher promql.Label
 	)
 }
 
-func withAlertTimeSeriesGroup(datasource string, labelMatcher promql.LabelMatcher) dashboard.Option {
+func withAlertTimeSeriesGroup(datasource string, labelMatcher *labels.Matcher) dashboard.Option {
 	return dashboard.AddPanelGroup("Alert Time Series",
 		panelgroup.PanelsPerLine(1),
 		panels.AlertsOverTime(datasource, labelMatcher),
@@ -33,7 +34,7 @@ func withAlertTimeSeriesGroup(datasource string, labelMatcher promql.LabelMatche
 }
 
 func BuildACMAlertsByCluster(project string, datasource string, clusterLabelName string) (dashboard.Builder, error) {
-	clusterLabelMatcher := dashboards.GetClusterLabelMatcher(clusterLabelName)
+	clusterLabelMatcher := dashboards.GetClusterLabelMatcherV2(clusterLabelName)
 	return dashboard.New("acm-alerts-by-cluster",
 		dashboard.ProjectName(project),
 		dashboard.Name("Alerts by Cluster"),
@@ -42,7 +43,10 @@ func BuildACMAlertsByCluster(project string, datasource string, clusterLabelName
 				labelValuesVar.PrometheusLabelValues("label_name",
 					dashboards.AddVariableDatasource(datasource),
 					labelValuesVar.Matchers(
-						"acm_label_names",
+						promql.SetLabelMatchers(
+							"acm_label_names",
+							[]promql.LabelMatcher{},
+						),
 					),
 				),
 				listVar.DisplayName("Label"),
@@ -53,14 +57,12 @@ func BuildACMAlertsByCluster(project string, datasource string, clusterLabelName
 		),
 		dashboard.AddVariable("value",
 			listVar.List(
-				labelValuesVar.PrometheusLabelValues("acm_label_names",
+				labelValuesVar.PrometheusLabelValues("$acm_label_names",
 					dashboards.AddVariableDatasource(datasource),
 					labelValuesVar.Matchers(
 						promql.SetLabelMatchers(
 							"acm_managed_cluster_labels",
-							[]promql.LabelMatcher{
-								{Name: "acm_label_names", Type: "=", Value: "$acm_label_names"},
-							},
+							[]promql.LabelMatcher{},
 						),
 					),
 				),
@@ -77,7 +79,7 @@ func BuildACMAlertsByCluster(project string, datasource string, clusterLabelName
 						promql.SetLabelMatchers(
 							"acm_managed_cluster_labels",
 							[]promql.LabelMatcher{
-								{Name: "acm_label_names", Type: "=~", Value: "$value"},
+								{Name: "$acm_label_names", Type: "=~", Value: "$value"},
 							},
 						),
 					),

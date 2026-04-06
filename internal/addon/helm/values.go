@@ -14,6 +14,7 @@ import (
 	lmanifests "github.com/stolostron/multicluster-observability-addon/internal/logging/manifests"
 	mhandlers "github.com/stolostron/multicluster-observability-addon/internal/metrics/handlers"
 	mmanifests "github.com/stolostron/multicluster-observability-addon/internal/metrics/manifests"
+	omanifests "github.com/stolostron/multicluster-observability-addon/internal/obsapi/manifests"
 	thandlers "github.com/stolostron/multicluster-observability-addon/internal/tracing/handlers"
 	tmanifests "github.com/stolostron/multicluster-observability-addon/internal/tracing/manifests"
 	"open-cluster-management.io/addon-framework/pkg/addonfactory"
@@ -23,12 +24,13 @@ import (
 )
 
 type HelmChartValues struct {
-	Enabled      bool                            `json:"enabled"`
-	Metrics      *mmanifests.MetricsValues       `json:"metrics,omitempty"`
-	Logging      *lmanifests.LoggingValues       `json:"logging,omitempty"`
-	Tracing      *tmanifests.TracingValues       `json:"tracing,omitempty"`
-	COO          *cmanifests.COOValues           `json:"coo,omitempty"`
-	RightSizing  *rshandlers.RightSizingValues  `json:"rightSizing,omitempty"`
+	Enabled     bool                           `json:"enabled"`
+	Metrics     *mmanifests.MetricsValues      `json:"metrics,omitempty"`
+	Logging     *lmanifests.LoggingValues      `json:"logging,omitempty"`
+	Tracing     *tmanifests.TracingValues      `json:"tracing,omitempty"`
+	COO         *cmanifests.COOValues          `json:"coo,omitempty"`
+	RightSizing *rshandlers.RightSizingValues  `json:"rightSizing,omitempty"`
+	ObsAPI      *omanifests.ObsAPIValues       `json:"obs-api,omitempty"`
 }
 
 func GetValuesFunc(ctx context.Context, k8s client.Client, logger logr.Logger) addonfactory.GetValuesFunc {
@@ -96,6 +98,10 @@ func GetValuesFunc(ctx context.Context, k8s client.Client, logger logr.Logger) a
 		if err != nil {
 			return nil, fmt.Errorf("failed to get right-sizing values: %w", err)
 		}
+
+		// WIP: Temporary solution to enable obs-api and will require to delete the mcoa pod to take effect.
+		obsAPIEnabled := aodc.Annotations["mcoa-obs-api"] == "true"
+		userValues.ObsAPI = omanifests.BuildValues(common.IsHubCluster(cluster), obsAPIEnabled)
 
 		return addonfactory.JsonStructToValues(userValues)
 	}

@@ -50,6 +50,7 @@ func TestBuildOptions(t *testing.T) {
 	require.NoError(t, kubescheme.AddToScheme(scheme))
 	require.NoError(t, operatorv1.AddToScheme(scheme))
 	require.NoError(t, cooprometheusv1alpha1.AddToScheme(scheme))
+	require.NoError(t, cooprometheusv1.AddToScheme(scheme))
 	require.NoError(t, prometheusv1.AddToScheme(scheme))
 	require.NoError(t, clusterv1.AddToScheme(scheme))
 	require.NoError(t, addonapiv1alpha1.AddToScheme(scheme))
@@ -127,6 +128,19 @@ func TestBuildOptions(t *testing.T) {
 			Labels:    config.UserWorkloadPrometheusMatchLabels,
 		},
 		Data: map[string]string{},
+	}
+
+	uwlCooRule := &cooprometheusv1.PrometheusRule{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-uwl-rule-rhobs",
+			Namespace: hubNamespace,
+			Labels:    config.UserWorkloadPrometheusMatchLabels,
+		},
+		Spec: cooprometheusv1.PrometheusRuleSpec{
+			Groups: []cooprometheusv1.RuleGroup{
+				{Name: "uwl-rules", Interval: ptr.To(cooprometheusv1.Duration("30s"))},
+			},
+		},
 	}
 
 	platformManagedClusterAddOn := &addonapiv1alpha1.ManagedClusterAddOn{
@@ -403,8 +417,10 @@ func TestBuildOptions(t *testing.T) {
 				assert.Nil(t, opts.UserWorkloads.PrometheusAgent)
 				// Check that scrape configs are set
 				assert.Len(t, opts.Platform.ScrapeConfigs, 1)
-				// Check that the Prometheus rule is set
-				assert.Len(t, opts.Platform.Rules, 1)
+				// Check that CoreOS PrometheusRules are included
+				assert.Len(t, opts.Platform.Rules, 1, "expected one monitoring.coreos.com PrometheusRule")
+				assert.Equal(t, platformRule.Name, opts.Platform.Rules[0].Name, "expected CoreOS PrometheusRule")
+				assert.Empty(t, opts.Platform.COORules, "platform should not have COO rules")
 				assert.False(t, opts.COOIsSubscribed)
 				assert.NotEmpty(t, opts.CRDEstablishedAnnotation)
 			},
@@ -469,6 +485,67 @@ func TestBuildOptions(t *testing.T) {
 				assert.Equal(t, spokeName, *opts.UserWorkloads.PrometheusAgent.Spec.CommonPrometheusFields.RemoteWrite[0].WriteRelabelConfigs[0].Replacement)
 				assert.Equal(t, config.ClusterNameMetricLabel, opts.UserWorkloads.PrometheusAgent.Spec.CommonPrometheusFields.RemoteWrite[0].WriteRelabelConfigs[0].TargetLabel)
 				assert.Len(t, opts.UserWorkloads.PrometheusAgent.Spec.CommonPrometheusFields.RemoteWrite[0].WriteRelabelConfigs, 5)
+				assert.False(t, opts.COOIsSubscribed)
+			},
+		},
+		"user workloads collection with monitoring.rhobs PrometheusRule (federating from COO)": {
+			resources: func() []client.Object {
+				return append(createResources(), uwlCooRule.DeepCopy())
+			},
+			addon: &addonapiv1alpha1.ManagedClusterAddOn{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: spokeName,
+					Name:      "observability-controller",
+				},
+				Status: addonapiv1alpha1.ManagedClusterAddOnStatus{
+					ConfigReferences: []addonapiv1alpha1.ConfigReference{
+						{
+							ConfigGroupResource: addonapiv1alpha1.ConfigGroupResource{
+								Group:    "monitoring.rhobs",
+								Resource: cooprometheusv1alpha1.PrometheusAgentName,
+							},
+							DesiredConfig: &addonapiv1alpha1.ConfigSpecHash{
+								ConfigReferent: addonapiv1alpha1.ConfigReferent{
+									Name:      uwlAgent.Name,
+									Namespace: uwlAgent.Namespace,
+								},
+							},
+						},
+						{
+							ConfigGroupResource: addonapiv1alpha1.ConfigGroupResource{
+								Group:    "",
+								Resource: "configmaps",
+							},
+							DesiredConfig: &addonapiv1alpha1.ConfigSpecHash{
+								ConfigReferent: addonapiv1alpha1.ConfigReferent{
+									Name:      uwlHAProxyCM.Name,
+									Namespace: uwlHAProxyCM.Namespace,
+								},
+							},
+						},
+						{
+							ConfigGroupResource: addonapiv1alpha1.ConfigGroupResource{
+								Group:    "monitoring.rhobs",
+								Resource: cooprometheusv1.PrometheusRuleName,
+							},
+							DesiredConfig: &addonapiv1alpha1.ConfigSpecHash{
+								ConfigReferent: addonapiv1alpha1.ConfigReferent{
+									Name:      uwlCooRule.Name,
+									Namespace: uwlCooRule.Namespace,
+								},
+							},
+						},
+					},
+				},
+			},
+			userWorkloadsEnabled: true,
+			expects: func(t *testing.T, opts Options, err error) {
+				assert.NoError(t, err)
+				assert.NotNil(t, opts.UserWorkloads.PrometheusAgent)
+				assert.Nil(t, opts.Platform.PrometheusAgent)
+				// When federating UWL metrics from COO, users define PrometheusRules with monitoring.rhobs API; MCOA must include them.
+				require.Len(t, opts.UserWorkloads.COORules, 1, "expected one monitoring.rhobs PrometheusRule for UWL")
+				assert.Equal(t, uwlCooRule.Name, opts.UserWorkloads.COORules[0].Name, "expected RHOBS UWL PrometheusRule to be loaded")
 				assert.False(t, opts.COOIsSubscribed)
 			},
 		},

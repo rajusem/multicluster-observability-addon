@@ -7,10 +7,11 @@ import (
 	panelgroup "github.com/perses/perses/go-sdk/panel-group"
 	listVar "github.com/perses/perses/go-sdk/variable/list-variable"
 	labelValuesVar "github.com/perses/plugins/prometheus/sdk/go/variable/label-values"
+	"github.com/prometheus/prometheus/model/labels"
 	panels "github.com/stolostron/multicluster-observability-addon/internal/perses/panels/acm"
 )
 
-func withControlPlaneHealthGroup(datasource string, labelMatcher promql.LabelMatcher) dashboard.Option {
+func withControlPlaneHealthGroup(datasource string, labelMatcher *labels.Matcher) dashboard.Option {
 	return dashboard.AddPanelGroup("Control Plane Health",
 		panelgroup.PanelsPerLine(2),
 		panels.Top50MaxLatencyAPIServer(datasource, labelMatcher),
@@ -18,7 +19,7 @@ func withControlPlaneHealthGroup(datasource string, labelMatcher promql.LabelMat
 	)
 }
 
-func withOptimizationGroup(datasource string, labelMatcher promql.LabelMatcher) dashboard.Option {
+func withOptimizationGroup(datasource string, labelMatcher *labels.Matcher) dashboard.Option {
 	return dashboard.AddPanelGroup("Optimization",
 		panelgroup.PanelsPerLine(2),
 		panels.Top50CPUOverEstimationClusters(datasource, labelMatcher),
@@ -26,19 +27,19 @@ func withOptimizationGroup(datasource string, labelMatcher promql.LabelMatcher) 
 	)
 }
 
-func withCapacityGroup(datasource string, labelMatcher promql.LabelMatcher) dashboard.Option {
+func withCapacityGroup(datasource string, labelMatcher *labels.Matcher) dashboard.Option {
 	return dashboard.AddPanelGroup("Capacity",
 		panelgroup.PanelsPerLine(2),
 		panels.Top50MemoryUtilizedClusters(datasource, labelMatcher),
-		panels.Top50CPUUtilizedClusters(datasource, labelMatcher),
 		panels.Top5MemoryUtilizationGraph(datasource, labelMatcher),
+		panels.Top50CPUUtilizedClusters(datasource, labelMatcher),
 		panels.Top5CPUUtilizationGraph(datasource, labelMatcher),
 		panels.BandwidthUtilization(datasource, labelMatcher),
 	)
 }
 
 func BuildACMClustersOverview(project string, datasource string, clusterLabelName string) (dashboard.Builder, error) {
-	clusterLabelMatcher := dashboards.GetClusterLabelMatcher(clusterLabelName)
+	clusterLabelMatcher := dashboards.GetClusterLabelMatcherV2(clusterLabelName)
 	return dashboard.New("acm-clusters-overview",
 		dashboard.ProjectName(project),
 		dashboard.Name("ACM Clusters Overview"),
@@ -47,7 +48,10 @@ func BuildACMClustersOverview(project string, datasource string, clusterLabelNam
 				labelValuesVar.PrometheusLabelValues("label_name",
 					dashboards.AddVariableDatasource(datasource),
 					labelValuesVar.Matchers(
-						"acm_label_names",
+						promql.SetLabelMatchers(
+							"acm_label_names",
+							[]promql.LabelMatcher{},
+						),
 					),
 				),
 				listVar.DisplayName("Label"),
@@ -58,14 +62,12 @@ func BuildACMClustersOverview(project string, datasource string, clusterLabelNam
 		),
 		dashboard.AddVariable("value",
 			listVar.List(
-				labelValuesVar.PrometheusLabelValues("acm_label_names",
+				labelValuesVar.PrometheusLabelValues("$acm_label_names",
 					dashboards.AddVariableDatasource(datasource),
 					labelValuesVar.Matchers(
 						promql.SetLabelMatchers(
 							"acm_managed_cluster_labels",
-							[]promql.LabelMatcher{
-								{Name: "acm_label_names", Type: "=", Value: "$acm_label_names"},
-							},
+							[]promql.LabelMatcher{},
 						),
 					),
 				),
@@ -84,7 +86,7 @@ func BuildACMClustersOverview(project string, datasource string, clusterLabelNam
 						promql.SetLabelMatchers(
 							"acm_managed_cluster_labels",
 							[]promql.LabelMatcher{
-								{Name: "acm_label_names", Type: "=~", Value: "$value"},
+								{Name: "$acm_label_names", Type: "=~", Value: "$value"},
 							},
 						),
 					),

@@ -3,24 +3,30 @@ package acm
 import (
 	"github.com/perses/community-mixins/pkg/dashboards"
 	"github.com/perses/community-mixins/pkg/promql"
+	commonSdk "github.com/perses/perses/go-sdk/common"
 	"github.com/perses/perses/go-sdk/panel"
 	panelgroup "github.com/perses/perses/go-sdk/panel-group"
+	piePanel "github.com/perses/plugins/piechart/sdk/go"
 	"github.com/perses/plugins/prometheus/sdk/go/query"
-	statPanel "github.com/perses/plugins/statchart/sdk/go"
 	timeSeriesPanel "github.com/perses/plugins/timeserieschart/sdk/go"
+	"github.com/prometheus/prometheus/model/labels"
 )
 
-func AlertSeverity(datasourceName string, labelMatchers ...promql.LabelMatcher) panelgroup.Option {
+func AlertSeverity(datasourceName string, labelMatchers ...*labels.Matcher) panelgroup.Option {
 	return panelgroup.AddPanel("Alert Severity",
-		statPanel.Chart(
-			statPanel.Calculation("last-number"),
+		piePanel.Chart(
+			piePanel.Calculation(commonSdk.LastNumberCalculation),
+			piePanel.WithLegend(piePanel.Legend{
+				Position: piePanel.BottomPosition,
+				Mode:     piePanel.ListMode,
+			}),
 		),
 		panel.AddQuery(
 			query.PromQL(
-				promql.SetLabelMatchers(
-					"sum(ALERTS{alertstate=\"firing\", cluster=\"$cluster\"}) by (severity)",
+				promql.SetLabelMatchersV2(
+					ACMCommonPanelQueries["AlertsFiringSeverity"],
 					labelMatchers,
-				),
+				).Pretty(0),
 				query.SeriesNameFormat("{{ severity }}"),
 				dashboards.AddQueryDataSource(datasourceName),
 			),
@@ -28,7 +34,7 @@ func AlertSeverity(datasourceName string, labelMatchers ...promql.LabelMatcher) 
 	)
 }
 
-func FiringAlertsTrend(datasourceName string, labelMatchers ...promql.LabelMatcher) panelgroup.Option {
+func FiringAlertsTrend(datasourceName string, labelMatchers ...*labels.Matcher) panelgroup.Option {
 	return panelgroup.AddPanel("Firing Alerts Trend",
 		timeSeriesPanel.Chart(
 			timeSeriesPanel.WithLegend(
@@ -49,10 +55,10 @@ func FiringAlertsTrend(datasourceName string, labelMatchers ...promql.LabelMatch
 		),
 		panel.AddQuery(
 			query.PromQL(
-				promql.SetLabelMatchers(
-					"sum(ALERTS{alertstate=\"firing\", cluster=\"$cluster\", severity=~\"$severity\"}) by (alertname)",
+				promql.SetLabelMatchersV2(
+					ACMCommonPanelQueries["AlertsFiringByName"],
 					labelMatchers,
-				),
+				).Pretty(0),
 				query.SeriesNameFormat("{{ alertname }}"),
 				dashboards.AddQueryDataSource(datasourceName),
 			),
@@ -60,7 +66,7 @@ func FiringAlertsTrend(datasourceName string, labelMatchers ...promql.LabelMatch
 	)
 }
 
-func PendingAlertsTrend(datasourceName string, labelMatchers ...promql.LabelMatcher) panelgroup.Option {
+func PendingAlertsTrend(datasourceName string, labelMatchers ...*labels.Matcher) panelgroup.Option {
 	return panelgroup.AddPanel("Pending Alerts Trend",
 		timeSeriesPanel.Chart(
 			timeSeriesPanel.WithLegend(
@@ -81,10 +87,10 @@ func PendingAlertsTrend(datasourceName string, labelMatchers ...promql.LabelMatc
 		),
 		panel.AddQuery(
 			query.PromQL(
-				promql.SetLabelMatchers(
-					"sum(ALERTS{alertstate=\"pending\", cluster=\"$cluster\", severity=~\"$severity\"}) by (alertname)",
+				promql.SetLabelMatchersV2(
+					ACMCommonPanelQueries["AlertsPendingByName"],
 					labelMatchers,
-				),
+				).Pretty(0),
 				query.SeriesNameFormat("{{ alertname }}"),
 				dashboards.AddQueryDataSource(datasourceName),
 			),
@@ -92,7 +98,7 @@ func PendingAlertsTrend(datasourceName string, labelMatchers ...promql.LabelMatc
 	)
 }
 
-func AlertsOverTime(datasourceName string, labelMatchers ...promql.LabelMatcher) panelgroup.Option {
+func AlertsOverTime(datasourceName string, labelMatchers ...*labels.Matcher) panelgroup.Option {
 	return panelgroup.AddPanel("Alerts over time",
 		timeSeriesPanel.Chart(
 			timeSeriesPanel.WithLegend(
@@ -114,10 +120,10 @@ func AlertsOverTime(datasourceName string, labelMatchers ...promql.LabelMatcher)
 		),
 		panel.AddQuery(
 			query.PromQL(
-				promql.SetLabelMatchers(
-					"sum(ALERTS{alertstate=\"firing\", cluster=\"$cluster\", severity=~\"$severity\" }) by (alertname)",
+				promql.SetLabelMatchersV2(
+					ACMCommonPanelQueries["AlertsFiringByName"],
 					labelMatchers,
-				),
+				).Pretty(0),
 				query.SeriesNameFormat("{{ alertname }}"),
 				dashboards.AddQueryDataSource(datasourceName),
 			),

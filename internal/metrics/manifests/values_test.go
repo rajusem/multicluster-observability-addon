@@ -150,6 +150,35 @@ func TestBuildValues(t *testing.T) {
 				assert.Equal(t, values.UserWorkload.Rules[1].Name, "b")
 			},
 		},
+		"with user workload COO rules": {
+			Options: handlers.Options{
+				UserWorkloads: handlers.Collector{
+					COORules: []*cooprometheusv1.PrometheusRule{newCOORule("coo-a"), newCOORule("coo-b")},
+				},
+			},
+			Expect: func(t *testing.T, values *manifests.MetricsValues) {
+				assert.Len(t, values.UserWorkload.Rules, 2)
+				assert.Equal(t, "coo-a", values.UserWorkload.Rules[0].Name)
+				assert.Equal(t, "coo-b", values.UserWorkload.Rules[1].Name)
+				assert.Equal(t, "monitoring.rhobs/v1", values.UserWorkload.Rules[0].APIVersion)
+				assert.Equal(t, "monitoring.rhobs/v1", values.UserWorkload.Rules[1].APIVersion)
+			},
+		},
+		"with mixed user workload rules and COO rules": {
+			Options: handlers.Options{
+				UserWorkloads: handlers.Collector{
+					Rules:    []*prometheusv1.PrometheusRule{newRule("coreos-a")},
+					COORules: []*cooprometheusv1.PrometheusRule{newCOORule("rhobs-a")},
+				},
+			},
+			Expect: func(t *testing.T, values *manifests.MetricsValues) {
+				assert.Len(t, values.UserWorkload.Rules, 2)
+				assert.Equal(t, "coreos-a", values.UserWorkload.Rules[0].Name)
+				assert.Empty(t, values.UserWorkload.Rules[0].APIVersion)
+				assert.Equal(t, "rhobs-a", values.UserWorkload.Rules[1].Name)
+				assert.Equal(t, "monitoring.rhobs/v1", values.UserWorkload.Rules[1].APIVersion)
+			},
+		},
 		"with user workload service monitors": {
 			Options: handlers.Options{
 				UserWorkloads: handlers.Collector{
@@ -249,6 +278,14 @@ func newScrapeConfig(name string) *cooprometheusv1alpha1.ScrapeConfig {
 
 func newRule(name string) *prometheusv1.PrometheusRule {
 	return &prometheusv1.PrometheusRule{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+}
+
+func newCOORule(name string) *cooprometheusv1.PrometheusRule {
+	return &cooprometheusv1.PrometheusRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
