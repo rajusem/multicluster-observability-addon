@@ -88,9 +88,6 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 	namespaceEnabled := opts.Platform.AnalyticsOptions.RightSizing.NamespaceEnabled
 	virtualizationEnabled := opts.Platform.AnalyticsOptions.RightSizing.VirtualizationEnabled
 
-	nsMatched := false
-	virtMatched := false
-
 	// Build namespace right-sizing options
 	if namespaceEnabled {
 		if err := o.ensureNamespaceConfigMap(ctx); err != nil {
@@ -118,7 +115,6 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 				return ret, fmt.Errorf("failed to build namespace right-sizing options: %w", err)
 			}
 			ret.NamespaceRightSizing = nsOpts
-			nsMatched = true
 		} else {
 			o.Logger.V(1).Info("Cluster not selected for namespace right-sizing", "cluster", cluster.Name)
 		}
@@ -151,14 +147,9 @@ func (o *OptionsBuilder) Build(ctx context.Context, cluster *clusterv1.ManagedCl
 				return ret, fmt.Errorf("failed to build virtualization right-sizing options: %w", err)
 			}
 			ret.VirtualizationRightSizing = virtOpts
-			virtMatched = true
 		} else {
 			o.Logger.V(1).Info("Cluster not selected for virtualization right-sizing", "cluster", cluster.Name)
 		}
-	}
-
-	if opts.Platform.Metrics.CollectionEnabled {
-		ret.ScrapeConfig = rightsizing.GenerateScrapeConfig(nsMatched, virtMatched)
 	}
 
 	return ret, nil

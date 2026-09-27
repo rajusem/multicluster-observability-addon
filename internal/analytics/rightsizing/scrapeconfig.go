@@ -64,6 +64,12 @@ var VirtualizationMetrics = []string{
 // invocation on metrics collection being enabled, which guarantees the ScrapeConfig
 // CRD exists on the spoke. The work agent then tracks the resource via
 // AppliedManifestWork and deletes it when it disappears from the ManifestWork spec.
+//
+// Not rendered on release-5.0: MCO ships a ScrapeConfig with the same name
+// (grafana/analytics/scrape-config.yaml) that reaches spokes through the platform
+// ScrapeConfig list. Rendering both makes the spoke object flip between the two
+// copies, because helm renders templates in random order and the ManifestWork keeps
+// the last object per kind, namespace and name.
 func GenerateScrapeConfig(includeNamespace, includeVirtualization bool) *cooprometheusv1alpha1.ScrapeConfig {
 	var matchParams []string
 
