@@ -62,13 +62,16 @@ func BuildNamespaceRightSizing(project string, datasource string, clusterLabelNa
 		dashboard.Name("ACM Right-Sizing Namespace"),
 		dashboard.Duration(time.Hour*24*7),
 
+		// Cluster options come from a namespace-level metric: cluster-level series
+		// carry no namespace label, so rbac-query-proxy drops them for users who
+		// only have metrics access to specific namespaces.
 		dashboard.AddVariable("cluster",
 			listVar.List(
 				labelValuesVar.PrometheusLabelValues("cluster",
 					dashboards.AddVariableDatasource(datasource),
 					labelValuesVar.Matchers(
 						promql.SetLabelMatchers(
-							"acm_rs:cluster:cpu_request",
+							"acm_rs:namespace:cpu_request",
 							[]promql.LabelMatcher{},
 						)),
 				),
@@ -122,6 +125,23 @@ func BuildNamespaceRightSizing(project string, datasource string, clusterLabelNa
 				listVar.DefaultValue("10d"),
 				listVar.AllowAllValue(false),
 				listVar.AllowMultiple(false),
+			),
+		),
+
+		dashboard.AddVariable("namespace",
+			listVar.List(
+				labelValuesVar.PrometheusLabelValues("namespace",
+					dashboards.AddVariableDatasource(datasource),
+					labelValuesVar.Matchers(
+						promql.SetLabelMatchers(
+							`acm_rs:namespace:cpu_usage{cluster="$cluster",profile="$cpu_profile"}`,
+							[]promql.LabelMatcher{},
+						)),
+				),
+				listVar.DisplayName("Namespace"),
+				listVar.DefaultValue("$__all"),
+				listVar.AllowAllValue(true),
+				listVar.AllowMultiple(true),
 			),
 		),
 

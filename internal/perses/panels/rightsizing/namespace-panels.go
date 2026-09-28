@@ -165,7 +165,7 @@ func CPUTopNamespacesPanel(datasourceName string) panelgroup.Option {
 		),
 		panel.AddQuery(
 			query.PromQL(
-				`topk(20, sum by (namespace) (acm_rs:namespace:cpu_usage{cluster="$cluster", profile="$cpu_profile"}) / sum by (namespace) (acm_rs:namespace:cpu_request{cluster="$cluster", profile="$cpu_profile"}))`,
+				`topk(20, sum by (namespace) (acm_rs:namespace:cpu_usage{cluster="$cluster", profile="$cpu_profile", namespace=~"$namespace"}) / sum by (namespace) (acm_rs:namespace:cpu_request{cluster="$cluster", profile="$cpu_profile", namespace=~"$namespace"}))`,
 				dashboards.AddQueryDataSource(datasourceName),
 				query.SeriesNameFormat("{{namespace}}"),
 			),
@@ -197,7 +197,7 @@ func MemTopNamespacesPanel(datasourceName string) panelgroup.Option {
 		),
 		panel.AddQuery(
 			query.PromQL(
-				`topk(20, sum by (namespace) (acm_rs:namespace:memory_usage{cluster="$cluster", profile="$memory_profile"}) / sum by (namespace) (acm_rs:namespace:memory_request{cluster="$cluster", profile="$memory_profile"}))`,
+				`topk(20, sum by (namespace) (acm_rs:namespace:memory_usage{cluster="$cluster", profile="$memory_profile", namespace=~"$namespace"}) / sum by (namespace) (acm_rs:namespace:memory_request{cluster="$cluster", profile="$memory_profile", namespace=~"$namespace"}))`,
 				dashboards.AddQueryDataSource(datasourceName),
 				query.SeriesNameFormat("{{namespace}}"),
 			),
@@ -235,31 +235,31 @@ func CPUQuotaTablePanel(datasourceName string) panelgroup.Option {
 		}),
 		panel.AddQuery(
 			query.PromQL(
-				`max_over_time(sum by (namespace) (acm_rs:namespace:cpu_usage{cluster="$cluster", profile="$cpu_profile"})[$days:]) / max_over_time(sum by (namespace) (acm_rs:namespace:cpu_request{cluster="$cluster", profile="$cpu_profile"})[$days:])`,
+				`max_over_time(sum by (namespace) (acm_rs:namespace:cpu_usage{cluster="$cluster", profile="$cpu_profile", namespace=~"$namespace"})[$days:]) / max_over_time(sum by (namespace) (acm_rs:namespace:cpu_request{cluster="$cluster", profile="$cpu_profile", namespace=~"$namespace"})[$days:])`,
 				dashboards.AddQueryDataSource(datasourceName),
 			),
 		),
 		panel.AddQuery(
 			query.PromQL(
-				`max_over_time(sum by (namespace) (acm_rs:namespace:cpu_usage{cluster="$cluster", profile="$cpu_profile"})[$days:])`,
+				`max_over_time(sum by (namespace) (acm_rs:namespace:cpu_usage{cluster="$cluster", profile="$cpu_profile", namespace=~"$namespace"})[$days:])`,
 				dashboards.AddQueryDataSource(datasourceName),
 			),
 		),
 		panel.AddQuery(
 			query.PromQL(
-				`max_over_time(sum by (namespace) (acm_rs:namespace:cpu_request{cluster="$cluster", profile="$cpu_profile"})[$days:])`,
+				`max_over_time(sum by (namespace) (acm_rs:namespace:cpu_request{cluster="$cluster", profile="$cpu_profile", namespace=~"$namespace"})[$days:])`,
 				dashboards.AddQueryDataSource(datasourceName),
 			),
 		),
 		panel.AddQuery(
 			query.PromQL(
-				`max_over_time(sum by (namespace) (acm_rs:namespace:cpu_recommendation{cluster="$cluster", profile="$cpu_profile"})[$days:])`,
+				`max_over_time(sum by (namespace) (acm_rs:namespace:cpu_recommendation{cluster="$cluster", profile="$cpu_profile", namespace=~"$namespace"})[$days:])`,
 				dashboards.AddQueryDataSource(datasourceName),
 			),
 		),
 		panel.AddQuery(
 			query.PromQL(
-				`max_over_time(sum by (namespace) (acm_rs:namespace:cpu_request_hard{cluster="$cluster", profile="$cpu_profile"})[$days:])`,
+				`max_over_time(sum by (namespace) (acm_rs:namespace:cpu_request_hard{cluster="$cluster", profile="$cpu_profile", namespace=~"$namespace"})[$days:])`,
 				dashboards.AddQueryDataSource(datasourceName),
 			),
 		),
@@ -296,31 +296,31 @@ func MemQuotaTablePanel(datasourceName string) panelgroup.Option {
 		}),
 		panel.AddQuery(
 			query.PromQL(
-				`max_over_time(sum by (namespace) (acm_rs:namespace:memory_usage{cluster="$cluster", profile="$memory_profile"})[$days:]) / max_over_time(sum by (namespace) (acm_rs:namespace:memory_request{cluster="$cluster", profile="$memory_profile"})[$days:])`,
+				`max_over_time(sum by (namespace) (acm_rs:namespace:memory_usage{cluster="$cluster", profile="$memory_profile", namespace=~"$namespace"})[$days:]) / max_over_time(sum by (namespace) (acm_rs:namespace:memory_request{cluster="$cluster", profile="$memory_profile", namespace=~"$namespace"})[$days:])`,
 				dashboards.AddQueryDataSource(datasourceName),
 			),
 		),
 		panel.AddQuery(
 			query.PromQL(
-				`max_over_time(sum by (namespace) (acm_rs:namespace:memory_usage{cluster="$cluster", profile="$memory_profile"})[$days:])`,
+				`max_over_time(sum by (namespace) (acm_rs:namespace:memory_usage{cluster="$cluster", profile="$memory_profile", namespace=~"$namespace"})[$days:])`,
 				dashboards.AddQueryDataSource(datasourceName),
 			),
 		),
 		panel.AddQuery(
 			query.PromQL(
-				`max_over_time(sum by (namespace) (acm_rs:namespace:memory_request{cluster="$cluster", profile="$memory_profile"})[$days:])`,
+				`max_over_time(sum by (namespace) (acm_rs:namespace:memory_request{cluster="$cluster", profile="$memory_profile", namespace=~"$namespace"})[$days:])`,
 				dashboards.AddQueryDataSource(datasourceName),
 			),
 		),
 		panel.AddQuery(
 			query.PromQL(
-				`max_over_time(sum by (namespace) (acm_rs:namespace:memory_recommendation{cluster="$cluster", profile="$memory_profile"})[$days:])`,
+				`max_over_time(sum by (namespace) (acm_rs:namespace:memory_recommendation{cluster="$cluster", profile="$memory_profile", namespace=~"$namespace"})[$days:])`,
 				dashboards.AddQueryDataSource(datasourceName),
 			),
 		),
 		panel.AddQuery(
 			query.PromQL(
-				`max_over_time(sum by (namespace) (acm_rs:namespace:memory_request_hard{cluster="$cluster", profile="$memory_profile"})[$days:])`,
+				`max_over_time(sum by (namespace) (acm_rs:namespace:memory_request_hard{cluster="$cluster", profile="$memory_profile", namespace=~"$namespace"})[$days:])`,
 				dashboards.AddQueryDataSource(datasourceName),
 			),
 		),

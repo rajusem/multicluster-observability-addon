@@ -31,12 +31,34 @@ func TestBuildNamespaceRightSizing(t *testing.T) {
 	assert.Equal(t, "ACM Right-Sizing Namespace", spec.Display.Name)
 
 	t.Run("has expected variables", func(t *testing.T) {
-		require.Len(t, spec.Variables, 4, "expected cluster, cpu_profile, memory_profile, days")
+		require.Len(t, spec.Variables, 5, "expected cluster, cpu_profile, memory_profile, days, namespace")
 		varNames := extractVarNames(spec.Variables)
 		assert.Contains(t, varNames, "cluster")
 		assert.Contains(t, varNames, "cpu_profile")
 		assert.Contains(t, varNames, "memory_profile")
 		assert.Contains(t, varNames, "days")
+		assert.Contains(t, varNames, "namespace")
+	})
+
+	t.Run("variables work for namespace-scoped users", func(t *testing.T) {
+		raw, err := json.Marshal(spec.Variables)
+		require.NoError(t, err)
+		varsStr := string(raw)
+		// Cluster-level series have no namespace label, so rbac-query-proxy hides
+		// them from namespace-scoped users; options must come from namespace metrics.
+		assert.NotContains(t, varsStr, "acm_rs:cluster:")
+		assert.Contains(t, varsStr, "acm_rs:namespace:cpu_request")
+	})
+
+	t.Run("namespace panels filter by the namespace variable", func(t *testing.T) {
+		raw, err := json.Marshal(spec.Panels)
+		require.NoError(t, err)
+		panelsStr := string(raw)
+		require.Positive(t, strings.Count(panelsStr, "acm_rs:namespace:"))
+		assert.Equal(t, strings.Count(panelsStr, "acm_rs:namespace:"), strings.Count(panelsStr, `namespace=~\"$namespace\"`),
+			"every namespace-level panel selector should filter by $namespace")
+		assert.NotContains(t, panelsStr, `acm_rs:cluster:cpu_request{cluster=\"$cluster\", profile=\"$cpu_profile\", namespace`,
+			"cluster totals have no namespace label and must not be filtered by it")
 	})
 
 	t.Run("has expected panel groups", func(t *testing.T) {
