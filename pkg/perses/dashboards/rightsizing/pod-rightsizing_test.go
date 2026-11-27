@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +24,7 @@ func TestBuildPodRightSizing(t *testing.T) {
 	assert.Contains(t, specStr, "acm_rs:pod:cpu_usage")
 	assert.Contains(t, specStr, "acm_rs:pod:memory_usage")
 	assert.Contains(t, specStr, "acm-rs-pod-detail")
-	assert.NotContains(t, specStr, "acm_rs:workload:cpu_usage")
+	assert.NotContains(t, specStr, "acm_rs:workload:", "pod overview must not read workload-level series")
 	assert.NotContains(t, specStr, `"text":"N/A"`, "missing pod fields must stay blank")
 }
 
@@ -60,11 +61,8 @@ func TestBuildPodDetail(t *testing.T) {
 		assert.NotEqual(t, "Table", p.Spec.Plugin.Kind, "pod detail panel %s must not be a table", name)
 	}
 	varNames := extractVarNames(db.Dashboard.Spec.Variables)
-	assert.Contains(t, varNames, "cluster")
-	assert.Contains(t, varNames, "namespace")
-	assert.Contains(t, varNames, "pod")
-	assert.NotContains(t, varNames, "workload", "pod detail should not expose unused workload variable")
-	assert.NotContains(t, varNames, "workload_type", "pod detail should not expose unused workload_type variable")
+	assert.ElementsMatch(t, []string{"cluster", "namespace", "pod", "cpu_profile", "memory_profile", "days"}, varNames,
+		"pod detail must have exactly these variables; workload and workload_type are unused")
 	raw, err := json.Marshal(db.Dashboard.Spec)
 	require.NoError(t, err)
 	specStr := string(raw)
@@ -72,5 +70,51 @@ func TestBuildPodDetail(t *testing.T) {
 	assert.Contains(t, specStr, "acm_rs:pod:memory_recommendation")
 	assert.Contains(t, specStr, "CPU Over Time - Pod")
 	assert.Contains(t, specStr, "Memory Over Time - Pod")
-	assert.NotContains(t, specStr, "acm_rs:workload:cpu_usage")
+	assert.NotContains(t, specStr, "acm_rs:workload:", "pod detail must not read workload-level series")
+
+	// The cluster, namespace and pod selectors list values from the pod inventory
+	// series, and each one is scoped by the selectors before it.
+	type labelValuesPlugin struct {
+		Kind string `json:"kind"`
+		Spec struct {
+			LabelName string   `json:"labelName"`
+			Matchers  []string `json:"matchers"`
+		} `json:"spec"`
+	}
+	var vars []struct {
+		Spec struct {
+			Name   string            `json:"name"`
+			Plugin labelValuesPlugin `json:"plugin"`
+		} `json:"spec"`
+	}
+	rawVars, err := json.Marshal(db.Dashboard.Spec.Variables)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(rawVars, &vars))
+	plugins := make(map[string]labelValuesPlugin, len(vars))
+	for _, v := range vars {
+		plugins[v.Spec.Name] = v.Spec.Plugin
+	}
+	for _, tc := range []struct {
+		name string
+		want []string
+	}{
+		{"cluster", []string{`__name__="acm_rs:pod:info"`}},
+		{"namespace", []string{`__name__="acm_rs:pod:info"`, `cluster="$cluster"`}},
+		{"pod", []string{`__name__="acm_rs:pod:info"`, `cluster="$cluster"`, `namespace="$namespace"`}},
+	} {
+		t.Run(tc.name+" selector", func(t *testing.T) {
+			plugin, ok := plugins[tc.name]
+			require.True(t, ok, "missing %s variable", tc.name)
+			assert.Equal(t, "PrometheusLabelValuesVariable", plugin.Kind)
+			assert.Equal(t, tc.name, plugin.Spec.LabelName)
+			require.Len(t, plugin.Spec.Matchers, 1)
+			matchers, err := parser.ParseMetricSelector(plugin.Spec.Matchers[0])
+			require.NoError(t, err)
+			got := make([]string, 0, len(matchers))
+			for _, m := range matchers {
+				got = append(got, m.String())
+			}
+			assert.ElementsMatch(t, tc.want, got)
+		})
+	}
 }
